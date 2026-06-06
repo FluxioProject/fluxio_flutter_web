@@ -8,13 +8,16 @@ class Session {
   Map<String, String> headers = {};
   final http.Client _client = BrowserClient()..withCredentials = true;
   final String url = 'https://us-central1-tcc2026-7d3c4.cloudfunctions.net/api';
+  static const String _apiKey = String.fromEnvironment('FLUXIO_API_KEY');
 
   Session() {
     _setApiKey();
   }
 
   void _setApiKey() {
-    headers['x-api-key'] = 'ycevqNVkJRs5vSImbfCe6zpI8LBthNd4';
+    if (_apiKey.isNotEmpty) {
+      headers['x-api-key'] = _apiKey;
+    }
   }
 
   Future<Map<String, dynamic>> patchObj(
