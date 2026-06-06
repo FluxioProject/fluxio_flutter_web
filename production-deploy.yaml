@@ -1,0 +1,84 @@
+name: "Deploy Flutter Web App to Firebase"
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Permite execução manual
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # Necessário para fazer push
+      actions: read
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0  # Necessário para git push
+        
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.32.5'
+        channel: 'stable'
+        cache: true
+        
+    - name: Auto-increment build number
+      working-directory: ./flutter_web
+      run: |
+        # Extrai o build number atual do pubspec.yaml
+        current_build=$(grep -E '^version:' pubspec.yaml | sed 's/.*+//')
+        echo "Build atual: $current_build"
+        
+        # Incrementa o build number
+        new_build=$((current_build + 1))
+        echo "Novo build: $new_build"
+        
+        # Atualiza o pubspec.yaml com o novo build number
+        sed -i "s/version: \([0-9]\+\.[0-9]\+\.[0-9]\+\)+${current_build}/version: \1+${new_build}/" pubspec.yaml
+        
+        # Verifica se mudou
+        echo "Nova versão no pubspec.yaml:"
+        grep -E '^version:' pubspec.yaml
+        
+    - name: Commit new build number
+      run: |
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add flutter_web/pubspec.yaml
+        
+        # Verifica se há mudanças para commitar
+        if git diff --staged --quiet; then
+          echo "Nenhuma mudança para commitar"
+        else
+          git commit -m "Auto-increment build number [skip ci]"
+          git push origin main
+        fi
+        
+    - name: Get Flutter dependencies
+      working-directory: ./flutter_web
+      run: flutter pub get
+      
+    # - name: Run tests
+    #   working-directory: ./flutter_web
+    #   run: flutter test
+    #   continue-on-error: true
+      
+    - name: Build Flutter Web
+      working-directory: ./flutter_web
+      run: flutter build web --release --no-source-maps --no-tree-shake-icons
+      
+    - name: Deploy to Firebase Hosting
+      uses: FirebaseExtended/action-hosting-deploy@v0
+      with:
+        repoToken: ${{ secrets.GITHUB_TOKEN }}
+        firebaseServiceAccount: ${{ secrets.FIREBASE_ACTIONS }}
+        projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+        channelId: live
+        entryPoint: ./flutter_web
+
