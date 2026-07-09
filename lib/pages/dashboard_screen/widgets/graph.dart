@@ -13,7 +13,7 @@ class SparklinePainter extends CustomPainter {
 
   SparklinePainter(this.data);
 
-  static const int windowSeconds = 300; // janela fixa
+  static const int windowSeconds = 300; // fixed window
 
   @override
   void paint(Canvas c, Size s) {
@@ -24,7 +24,7 @@ class SparklinePainter extends CustomPainter {
     const bottomPad = 22.0;
 
     // =========================
-    // Janela de tempo fixa
+    // Fixed time window
     // =========================
     final now = DateTime.now();
     final startTime = now.subtract(const Duration(seconds: windowSeconds));
@@ -40,7 +40,7 @@ class SparklinePainter extends CustomPainter {
     }
 
     // =========================
-    // Escala dinâmica Y
+    // Dynamic Y scale
     // =========================
     final visibleData = data.where((p) => p.time.isAfter(startTime)).toList();
 
@@ -81,7 +81,7 @@ class SparklinePainter extends CustomPainter {
     final tp = TextPainter(textDirection: TextDirection.ltr);
 
     // =========================
-    // Eixos
+    // Axes
     // =========================
     c.drawLine(
       Offset(leftPad, 0),
@@ -117,7 +117,7 @@ class SparklinePainter extends CustomPainter {
     }
 
     // =========================
-    // Linha do gráfico
+    // Graph line
     // =========================
     final path = Path();
 

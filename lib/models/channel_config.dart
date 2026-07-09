@@ -1,8 +1,8 @@
 class ChannelConfig {
   String name;
   String unit;
-  double mapMin; // valor físico correspondente a 4mA
-  double mapMax; // valor físico correspondente a 20mA
+  double mapMin; // physical value mapped to 4mA
+  double mapMax; // physical value mapped to 20mA
   double min;
   double max;
   int decimals;

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tcc_flutter/models/channel_config.dart';
 import 'package:tcc_flutter/models/device.dart';
-import 'package:tcc_flutter/mqtt/mqtt_manager.dart';
+import 'package:tcc_flutter/services/mqtt_manager.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/widgets/blocks.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/widgets/enums.dart';
 import 'package:tcc_flutter/widgets/show_message.dart';

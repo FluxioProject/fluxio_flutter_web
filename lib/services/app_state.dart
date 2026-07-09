@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:tcc_flutter/backend_api/api_communication.dart';
 import 'package:tcc_flutter/models/device.dart';
 import 'package:tcc_flutter/models/user.dart';
+import 'package:tcc_flutter/services/mqtt_manager.dart';
 
 final AppState appState = AppState();
 
@@ -14,7 +15,7 @@ class AppState extends ChangeNotifier {
   List<Device> devices = [];
   Map<String, dynamic>? mqtt;
 
-  // Verifica com backend se já possui autenticação para pular tela de login
+  // Checks with the backend whether an existing session can skip the login page.
   Future<void> tryPersistLogin(BuildContext context) async {
     if (_syncing) return;
 
@@ -34,12 +35,10 @@ class AppState extends ChangeNotifier {
           mqtt = obj['mqtt'];
         }
       } else {
-        // persist válido, mas sem usuário
         current = null;
         devices = [];
       }
     } catch (e) {
-      // erro → estado conhecido
       current = null;
       devices = [];
     } finally {
@@ -48,7 +47,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Login do usuário
+  // User login.
   Future<void> login(
     String email,
     String password,
@@ -79,20 +78,24 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       print(e);
-    }
-    finally {
+    } finally {
       _syncing = false;
       notifyListeners();
     }
   }
 
-  // Logout do usuário sem desconectar em outros dispositivos
+  // Logs out this user session without disconnecting other devices.
   Future<void> logout() async {
     if (_syncing) return;
 
     try {
       await _session.post('users/logout', {});
     } catch (e) {}
+
+    if (mqttManager.isConnected()) {
+      mqttManager.disconnect();
+    }
+
     current = null;
     notifyListeners();
   }
@@ -120,7 +123,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Carrega todos os produtos
+  // Loads all devices.
   Future<void> loadProducts(BuildContext context) async {
     final obj = await _session.getObj('products/get-all-products', context);
 
@@ -170,7 +173,6 @@ class AppState extends ChangeNotifier {
     try {
       await _session.delete('devices/delete-device/$deviceId');
 
-      // remove localmente
       devices.removeWhere((d) => d.deviceId == deviceId);
     } finally {
       _syncing = false;
@@ -191,7 +193,6 @@ class AppState extends ChangeNotifier {
     try {
       await _session.patch('devices/edit-device/$deviceId', {'name': newName});
 
-      // atualiza lista local
       final idx = devices.indexWhere((d) => d.deviceId == deviceId);
       if (idx != -1) {
         devices[idx] = devices[idx].copyWith(name: newName);
@@ -204,7 +205,23 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Deleta um produto
+  // Updates device status (online/ip) from an MQTT message.
+  void updateDeviceStatus({
+    required String deviceId,
+    bool? isConnected,
+    String? ipAddress,
+  }) {
+    final idx = devices.indexWhere((d) => d.deviceId == deviceId);
+    if (idx == -1) return;
+
+    devices[idx] = devices[idx].copyWith(
+      isConnected: isConnected,
+      ipAddress: ipAddress,
+    );
+    notifyListeners();
+  }
+
+  // Deletes a device.
   Future<void> deleteProduct({
     required String productId,
     required BuildContext context,
@@ -218,7 +235,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Atualiza os dados de um produto
+  // Updates device data.
   Future<void> updateProduct({
     required String productId,
     String? name,
@@ -245,7 +262,6 @@ class AppState extends ChangeNotifier {
     try {
       await _session.delete('users/delete_own_account');
 
-      // limpa estado local
       current = null;
       notifyListeners();
     } finally {

@@ -1,0 +1,4 @@
+{
+  "FLUXIO_API_BASE_URL": "https://us-central1-tcc2026-7d3c4.cloudfunctions.net/api",
+  "FLUXIO_API_KEY": "replace-with-your-api-key"
+}

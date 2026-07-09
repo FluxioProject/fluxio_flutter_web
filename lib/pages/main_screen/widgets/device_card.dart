@@ -15,9 +15,16 @@ class DeviceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final connected = device.isConnected;
+    final statusColor = connected ? Colors.greenAccent : Colors.redAccent;
+    final statusText = connected
+        ? 'Conectado${device.ipAddress != null ? ' - ${device.ipAddress}' : ''}'
+        : 'Desconectado';
+
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: () {
+        // Clickable even when disconnected for testing.
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => DeviceDetailsPage(device: device)),
@@ -59,6 +66,29 @@ class DeviceCard extends StatelessWidget {
                       fontWeight: FontWeight.w500,
                       fontSize: 16,
                     ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      SelectableText(
+                        'Status: $statusText',
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

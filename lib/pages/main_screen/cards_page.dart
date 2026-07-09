@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:tcc_flutter/pages/main_screen/manage_devices/add_device.dart';
 import 'package:tcc_flutter/pages/first_screens/login.dart';
@@ -5,6 +6,7 @@ import 'package:tcc_flutter/pages/main_screen/manage_user/edit_account.dart';
 import 'package:tcc_flutter/pages/main_screen/widgets/device_card.dart';
 import 'package:tcc_flutter/models/device.dart';
 import 'package:tcc_flutter/services/app_state.dart';
+import 'package:tcc_flutter/services/mqtt_manager.dart';
 import 'package:tcc_flutter/widgets/gradient_bg.dart';
 import 'package:tcc_flutter/widgets/show_message.dart';
 
@@ -18,6 +20,7 @@ class CardsPage extends StatefulWidget {
 class _CardsPageState extends State<CardsPage> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _query = '';
+  final Set<String> _subscribedDeviceIds = {};
 
   List<Device> get filteredDevices {
     final devices = appState.devices;
@@ -35,16 +38,62 @@ class _CardsPageState extends State<CardsPage> {
   void initState() {
     super.initState();
     appState.addListener(_onUserUpdated);
+    _setupMqtt();
+  }
+
+  Future<void> _setupMqtt() async {
+    await mqttManager.initializeMqtt(context, true);
+    if (!mounted) return;
+    _syncDeviceSubscriptions();
+  }
+
+  // Subscribes to each device status topic that is not subscribed yet.
+  void _syncDeviceSubscriptions() {
+    for (final d in appState.devices) {
+      if (_subscribedDeviceIds.contains(d.deviceId)) continue;
+      _subscribedDeviceIds.add(d.deviceId);
+
+      final topic = 'device/${d.deviceId}/status';
+      mqttManager.subscribe(topic, (payload) {
+        _handleStatusMessage(d.deviceId, payload);
+      });
+    }
+  }
+
+  void _handleStatusMessage(String deviceId, String payload) {
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map<String, dynamic>) return;
+
+      final online = decoded['online'] as bool?;
+      final ip = decoded['ip'] as String?;
+
+      appState.updateDeviceStatus(
+        deviceId: deviceId,
+        isConnected: online,
+        ipAddress: ip,
+      );
+    } catch (_) {
+      // Ignore invalid payloads.
+    }
   }
 
   void _onUserUpdated() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    _syncDeviceSubscriptions();
   }
 
   @override
   void dispose() {
     _searchCtrl.dispose();
     appState.removeListener(_onUserUpdated);
+
+    for (final id in _subscribedDeviceIds) {
+      mqttManager.unsubscribe('device/$id/status');
+    }
+    // Do not disconnect here because DeviceDetailsPage shares the MQTT connection.
+
     super.dispose();
   }
 
@@ -104,7 +153,6 @@ class _CardsPageState extends State<CardsPage> {
       );
 
       showMessage(context, 'Nome do dispositivo atualizado', false);
-      // NÃO precisa setState: o AppState dá notifyListeners()
     } catch (e) {
       showMessage(
         context,
@@ -165,7 +213,7 @@ class _CardsPageState extends State<CardsPage> {
                 color: Colors.white.withOpacity(0.18),
                 width: 1,
               ),
-              color: Colors.white.withOpacity(0.04), // opcional (bem leve)
+              color: Colors.white.withOpacity(0.04),
             ),
             child: TextButton.icon(
               onPressed: () async {
@@ -182,11 +230,9 @@ class _CardsPageState extends State<CardsPage> {
 
                   showMessage(context, 'Nome atualizado com sucesso', false);
 
-                  // força rebuild REAL
                   if (mounted) setState(() {});
                 }
               },
-
               icon: const Icon(Icons.person_outline, size: 22),
               label: Text(
                 (user?.nome.trim().isNotEmpty ?? false)
@@ -215,13 +261,6 @@ class _CardsPageState extends State<CardsPage> {
             ),
           ),
           SizedBox(width: 5),
-          // IconButton(
-          //   tooltip: 'Configurações',
-          //   icon: const Icon(Icons.settings_outlined),
-          //   onPressed: () {
-          //     // TODO: abrir tela de configurações
-          //   },
-          // ),
           IconButton(
             tooltip: 'Logout',
             icon: const Icon(Icons.logout),
@@ -288,6 +327,9 @@ class _CardsPageState extends State<CardsPage> {
 
                   if (confirm == true) {
                     try {
+                      mqttManager.unsubscribe('device/${dev.deviceId}/status');
+                      _subscribedDeviceIds.remove(dev.deviceId);
+
                       await appState.deleteDevice(
                         deviceId: dev.deviceId,
                         context: context,
@@ -329,6 +371,7 @@ class _CardsPageState extends State<CardsPage> {
             );
 
             showMessage(context, 'Dispositivo adicionado com sucesso', false);
+            _syncDeviceSubscriptions();
           } catch (e) {
             showMessage(
               context,

@@ -34,7 +34,7 @@ class LogicBlock {
   final BlockType type;
   Offset position;
   final int? ioType; // IOType.index
-  final int? ioChannel; // canal físico
+  final int? ioChannel; // physical channel
 
   late List<InputSource?> inputs;
 

@@ -33,6 +33,11 @@ migrate_working_dir/
 .pub/
 /build/
 
+# Local runtime configuration and secrets
+config.local.json
+.env
+.env.*
+
 # Symbolication related
 app.*.symbols
 

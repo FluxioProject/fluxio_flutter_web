@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:tcc_flutter/backend_api/api_communication.dart';
-import 'package:tcc_flutter/mqtt/mqtt_manager.dart';
+import 'package:tcc_flutter/services/mqtt_manager.dart';
 import 'package:crypto/crypto.dart';
 
 class FirmwareUploadDialog extends StatefulWidget {
@@ -24,7 +24,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
   PlatformFile? selectedFile;
   String? error;
 
-  // Validação simples de firmware
+  // Basic firmware validation.
   bool _isValidFirmware(PlatformFile file) {
     final name = file.name.toLowerCase();
     return name.endsWith('.bin') ||
@@ -32,7 +32,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
         name.endsWith('.uf2');
   }
 
-  // Aviso de responsabilidade
+  // Liability warning.
   Future<bool> _showWarningDialog(BuildContext context) async {
     return await showDialog<bool>(
           context: context,
@@ -89,7 +89,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
   Future<void> _pickFile() async {
     setState(() => error = null);
 
-    // FilePicker IMEDIATO (evento de usuário)
+    // Immediate FilePicker call triggered by the user event.
     final result = await FilePicker.platform.pickFiles(
       withData: true,
       type: FileType.custom,
@@ -139,7 +139,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
       final bytes = selectedFile!.bytes!;
       final sha = sha256FromBytes(bytes);
 
-      // 1️ pedir signed URL
+      // 1. Request a signed URL.
       final uploadInfo = await session.postObj(
         'devices/${widget.deviceId}/firmware/get-upload-url',
         {},
@@ -148,7 +148,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
 
       setState(() => progress = 0.25);
 
-      // 2️ upload direto no Firebase Storage
+      // 2. Upload directly to Firebase Storage.
       final uploadResp = await http.put(
         Uri.parse(uploadInfo['uploadUrl']),
         headers: {'Content-Type': 'application/octet-stream'},
@@ -161,7 +161,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
 
       setState(() => progress = 0.6);
 
-      // 3️ commit no backend
+      // 3. Commit the upload in the backend.
       final commit = await session
           .postObj('devices/${widget.deviceId}/firmware/commit', {
             'path': uploadInfo['path'],
@@ -170,7 +170,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
             'size': bytes.length,
           }, context);
 
-      // 4️ MQTT (NO FRONT)
+      // 4. Publish the MQTT command from the frontend.
       final payload = {
         'type': 'ota',
         'version': uploadInfo['version'],
@@ -207,14 +207,14 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(
           minWidth: 420,
-          maxWidth: 420, // largura travada
+          maxWidth: 420, // fixed width
         ),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Ícone
+              // Icon
               const Icon(
                 Icons.system_update_alt,
                 size: 48,
@@ -242,7 +242,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
 
               const SizedBox(height: 20),
 
-              // Seletor de arquivo
+              // File picker
               InkWell(
                 onTap: uploading ? null : _pickFile,
                 borderRadius: BorderRadius.circular(10),
@@ -283,7 +283,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
 
               const SizedBox(height: 20),
 
-              // Barra de progresso
+              // Progress bar
               LinearProgressIndicator(
                 value: uploading ? progress : 0.0,
                 minHeight: 10,
@@ -307,7 +307,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
 
               const SizedBox(height: 24),
 
-              // Botões
+              // Buttons
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [

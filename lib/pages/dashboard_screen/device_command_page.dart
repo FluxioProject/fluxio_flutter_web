@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:tcc_flutter/models/device.dart';
 import 'package:tcc_flutter/models/channel_config.dart';
 import 'package:tcc_flutter/models/telemetry.dart';
-import 'package:tcc_flutter/mqtt/mqtt_manager.dart';
+import 'package:tcc_flutter/services/mqtt_manager.dart';
 import 'package:tcc_flutter/widgets/gradient_bg.dart';
 
 class DeviceCommandPage extends StatefulWidget {
@@ -70,7 +70,7 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
         });
       });
 
-      // opcional: pedir estado atual
+      // Optional: request the current state.
       mqttManager.publish(
         'device/${widget.device.deviceId}/control',
         jsonEncode({'state': true}),

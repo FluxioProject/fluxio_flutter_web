@@ -2,19 +2,22 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/browser_client.dart';
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/config/app_config.dart';
 import 'package:tcc_flutter/widgets/show_message.dart';
 
 class Session {
   Map<String, String> headers = {};
   final http.Client _client = BrowserClient()..withCredentials = true;
-  final String url = 'https://us-central1-tcc2026-7d3c4.cloudfunctions.net/api';
+  final String url = AppConfig.apiBaseUrl;
 
   Session() {
     _setApiKey();
   }
 
   void _setApiKey() {
-    headers['x-api-key'] = 'ycevqNVkJRs5vSImbfCe6zpI8LBthNd4';
+    if (AppConfig.apiKey.isNotEmpty) {
+      headers['x-api-key'] = AppConfig.apiKey;
+    }
   }
 
   Future<Map<String, dynamic>> patchObj(
@@ -180,7 +183,7 @@ class Session {
       throw Exception(response.body);
     }
 
-    // Tenta converter JSON
+    // Try to decode a JSON response.
     try {
       final decoded = jsonDecode(response.body);
       if (decoded is Map<String, dynamic>) {

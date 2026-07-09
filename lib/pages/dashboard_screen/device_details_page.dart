@@ -11,7 +11,7 @@ import 'package:tcc_flutter/models/channel_config.dart';
 import 'package:tcc_flutter/models/device.dart';
 import 'package:tcc_flutter/models/telemetry.dart';
 import 'package:tcc_flutter/widgets/gradient_bg.dart';
-import '../../../mqtt/mqtt_manager.dart';
+import '../../services/mqtt_manager.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -71,6 +71,11 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
   bool get isStale =>
       lastRx == null || DateTime.now().difference(lastRx!).inSeconds >= 2;
 
+  // Watchdog retry logic
+  int _retryCount = 0;
+  static const int maxRetries = 3;
+  static const int retryIntervalSec = 3;
+  
   @override
   void initState() {
     super.initState();
@@ -252,13 +257,14 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
   void _startWatchdog() {
     _watchdogTimer?.cancel();
+    _retryCount = 0;
 
     _watchdogTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _connectionLostHandled) return;
 
       final now = DateTime.now();
 
-      // Se nunca recebeu nada, usa o start
+      // If nothing has been received yet, use the start time.
       final referenceTime = lastRx ?? _watchdogStart;
 
       if (referenceTime == null) return;
@@ -266,6 +272,28 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       final diff = now.difference(referenceTime).inSeconds;
 
       if (diff >= telemetryTimeoutSec) {
+        if (_retryCount < maxRetries) {
+          _retryCount++;
+
+          showMessage(
+            context,
+            'Sem resposta do dispositivo, tentando reconectar ($_retryCount/$maxRetries)...',
+            true,
+          );
+
+          // Try to resend the telemetry command. If MQTT has already
+          // reconnected in the background, this restarts the data stream.
+          mqttManager.publish(topicControl, jsonEncode({'telemetry': true}));
+
+          // Wait for the next check before counting another retry to avoid
+          // firing multiple attempts in the same second.
+          _watchdogStart = now.subtract(
+            Duration(seconds: telemetryTimeoutSec - retryIntervalSec),
+          );
+          return;
+        }
+
+        // Retry attempts are exhausted.
         _connectionLostHandled = true;
 
         mqttManager.publish(topicControl, jsonEncode({'telemetry': false}));
@@ -277,12 +305,15 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
         _telemetryKeepAlive?.cancel();
 
-        // // Sai da tela automaticamente
-        // Future.delayed(const Duration(milliseconds: 400), () {
-        //   if (mounted) {
-        //     Navigator.of(context).pop();
-        //   }
-        // });
+        // Leave the screen automatically.
+        Future.delayed(const Duration(milliseconds: 400), () {
+          if (mounted) {
+            Navigator.of(context).pop();
+          }
+        });
+      } else {
+        // Telemetry is flowing again, so reset the retry counter.
+        _retryCount = 0;
       }
     });
   }
@@ -337,7 +368,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
         ),
       );
 
-      // quando voltar da tela de comando
+      // When returning from the command screen.
       _resumeWatchdog();
     }
   }
@@ -368,7 +399,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
     if (subscribed) {
       mqttManager.publish(topicControl, jsonEncode({'telemetry': false}));
-      mqttManager.disconnect();
+      mqttManager.unsubscribe(topicTelemetry);
+      // Do not disconnect here because CardsPage shares the MQTT connection.
     }
     super.dispose();
   }
@@ -530,7 +562,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
             child: ListView(
               shrinkWrap: true,
               children: [
-                // Entradas Analógicas
+                // Analog inputs
                 if (aiCfg.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   const Padding(
@@ -557,7 +589,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                   ),
                 ],
 
-                // Saídas Analógicas
+                // Analog outputs
                 if (aoCfg.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   const Padding(
@@ -584,7 +616,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                   ),
                 ],
 
-                // Entradas Digitais
+                // Digital inputs
                 if (diCfg.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   const Padding(
@@ -611,7 +643,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                   ),
                 ],
 
-                // Saídas Digitais
+                // Digital outputs
                 if (doCfg.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   const Padding(
@@ -832,7 +864,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       ),
       child: Stack(
         children: [
-          // Conteúdo normal do card
+          // Normal card content
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -875,7 +907,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
             ],
           ),
 
-          // Ícone de alerta
+          // Alert icon
           if (outOfRange)
             Positioned(
               top: 0,

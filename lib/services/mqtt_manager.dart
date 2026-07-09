@@ -26,6 +26,12 @@ class MqttManager {
   }
 
   Future<void> initializeMqtt(BuildContext context, isCon) async {
+    // Already connected — skip re-creating the client entirely.
+    if (isConnected()) {
+      isLoadingNotifier.value = false;
+      return;
+    }
+
     isLoadingNotifier.value = true;
 
     if (isCon) {
@@ -35,20 +41,16 @@ class MqttManager {
           throw Exception('MQTT não disponível');
         }
 
-        // credenciais
         mqttManager.usermqtt = mqtt['user'];
         mqttManager.passwordmqtt = mqtt['pass'];
 
-        // escolhe porta WEB (8884)
         final List ports = mqtt['ports'];
         final int port = int.parse(
           ports.contains('8884') ? '8884' : ports.first.toString(),
         );
 
-        // monta URL
         final String url = 'wss://${mqtt['host']}/mqtt';
 
-        // usa o connect que já existe
         mqttManager.client = MqttBrowserClient.withPort(
           url,
           mqttManager.clientId,
@@ -58,7 +60,6 @@ class MqttManager {
         await mqttManager.connect(context);
       } catch (e) {
         if (context.mounted) {
-          // Navigator.pop(context);
           showMessage(context, 'internalerror', true);
         }
       }
@@ -76,7 +77,6 @@ class MqttManager {
     try {
       client!.websocketProtocols = ['mqtt'];
       client!.keepAlivePeriod = 120;
-      // client!.logging(on: true);
 
       client!.connectionMessage = MqttConnectMessage()
           .withClientIdentifier(clientId)
@@ -114,7 +114,6 @@ class MqttManager {
     client!.onConnected = () {
       _isConnected = true;
 
-      // Reinscreve todos os tópicos existentes no novo client
       try {
         for (final topic in subscriptions.keys) {
           client!.subscribe(topic, MqttQos.atLeastOnce);
@@ -176,8 +175,6 @@ class MqttManager {
   }
 
   void clearSubscriptions() {
-    // if (client.onConnected == null) return;
-
     final List<String> topics = subscriptions.keys.toList();
 
     try {
@@ -192,10 +189,8 @@ class MqttManager {
   void disconnect() {
     _isConnected = false;
     _isConnecting = false;
-    // keepAliveTimer?.cancel();
-    // keepAliveTimer = null;
     clearSubscriptions();
-    client!.disconnect();
+    client?.disconnect();
   }
 
   void setGlobalCallback(Function(String topic, String message) callback) {
