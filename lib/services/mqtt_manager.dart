@@ -17,6 +17,11 @@ class MqttManager {
   String passwordmqtt = '';
   static bool _isConnected = false;
   ValueNotifier<bool> isLoadingNotifier = ValueNotifier<bool>(true);
+
+  // Exposed so the UI can show a "reconnecting..." state instead of treating
+  // every drop as a hard failure.
+  ValueNotifier<bool> isReconnectingNotifier = ValueNotifier<bool>(false);
+
   static bool _isConnecting = false;
   final clientId = 'flutter_web_${DateTime.now().millisecondsSinceEpoch}';
 
@@ -78,6 +83,15 @@ class MqttManager {
       client!.websocketProtocols = ['mqtt'];
       client!.keepAlivePeriod = 120;
 
+      // Let the mqtt_client package handle reconnection at the socket level.
+      // Without this, onDisconnected only flips a flag and nothing ever
+      // tries to re-establish the connection until a screen is reopened.
+      client!.autoReconnect = true;
+      client!.resubscribeOnAutoReconnect = true;
+
+      client!.onAutoReconnect = _onAutoReconnect;
+      client!.onAutoReconnected = _onAutoReconnected;
+
       client!.connectionMessage = MqttConnectMessage()
           .withClientIdentifier(clientId)
           .authenticateAs(usermqtt, passwordmqtt)
@@ -104,15 +118,32 @@ class MqttManager {
     }
   }
 
+  // Called by mqtt_client right before it attempts an automatic reconnect.
+  void _onAutoReconnect() {
+    isReconnectingNotifier.value = true;
+    debugPrint('[MQTT] Connection lost, attempting automatic reconnect...');
+  }
+
+  // Called by mqtt_client after an automatic reconnect succeeds.
+  // Subscriptions are restored automatically because
+  // resubscribeOnAutoReconnect is set to true above.
+  void _onAutoReconnected() {
+    _isConnected = true;
+    isReconnectingNotifier.value = false;
+    debugPrint('[MQTT] Automatically reconnected');
+  }
+
   void _setupOnDisconnectedHandler() {
     client!.onDisconnected = () {
       _isConnected = false;
+      debugPrint('[MQTT] Disconnected, waiting for auto-reconnect...');
     };
   }
 
   void _setupOnConnectedHandler() {
     client!.onConnected = () {
       _isConnected = true;
+      isReconnectingNotifier.value = false;
 
       try {
         for (final topic in subscriptions.keys) {
@@ -186,9 +217,13 @@ class MqttManager {
     subscriptions.clear();
   }
 
+  // Explicit, user-initiated disconnect. This intentionally does NOT rely
+  // on autoReconnect, since the caller wants the connection to actually
+  // stay down (e.g. navigating away from the app / logging out).
   void disconnect() {
     _isConnected = false;
     _isConnecting = false;
+    isReconnectingNotifier.value = false;
     clearSubscriptions();
     client?.disconnect();
   }
