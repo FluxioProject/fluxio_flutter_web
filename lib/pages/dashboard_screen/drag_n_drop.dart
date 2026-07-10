@@ -821,48 +821,59 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
             _group('IO do Dispositivo', Colors.greenAccent, [
               // AI
-              ...List.generate(widget.aiCfg.length, (i) {
-                final c = widget.aiCfg[i];
-                return _dragIO(
-                  title: c.name,
-                  icon: Icons.input,
-                  ioType: IOType.ai,
-                  channel: i,
-                );
-              }),
+              // ONLY: channels marked as hidden by the user in the IO screen
+              // (ChannelConfig.visible == false) are skipped here so they
+              // never show up as draggable blocks in the logic editor.
+              ...widget.aiCfg.asMap().entries.where((e) => e.value.visible).map(
+                (e) {
+                  final c = e.value;
+                  return _dragIO(
+                    title: c.name,
+                    icon: Icons.input,
+                    ioType: IOType.ai,
+                    channel: e.key,
+                  );
+                },
+              ),
 
               // DI
-              ...List.generate(widget.diCfg.length, (i) {
-                final c = widget.diCfg[i];
-                return _dragIO(
-                  title: c.name,
-                  icon: Icons.toggle_on,
-                  ioType: IOType.di,
-                  channel: i,
-                );
-              }),
+              ...widget.diCfg.asMap().entries.where((e) => e.value.visible).map(
+                (e) {
+                  final c = e.value;
+                  return _dragIO(
+                    title: c.name,
+                    icon: Icons.toggle_on,
+                    ioType: IOType.di,
+                    channel: e.key,
+                  );
+                },
+              ),
 
               // AO
-              ...List.generate(widget.aoCfg.length, (i) {
-                final c = widget.aoCfg[i];
-                return _dragIO(
-                  title: c.name,
-                  icon: Icons.output,
-                  ioType: IOType.ao,
-                  channel: i,
-                );
-              }),
+              ...widget.aoCfg.asMap().entries.where((e) => e.value.visible).map(
+                (e) {
+                  final c = e.value;
+                  return _dragIO(
+                    title: c.name,
+                    icon: Icons.output,
+                    ioType: IOType.ao,
+                    channel: e.key,
+                  );
+                },
+              ),
 
               // DO
-              ...List.generate(widget.doCfg.length, (i) {
-                final c = widget.doCfg[i];
-                return _dragIO(
-                  title: c.name,
-                  icon: Icons.toggle_off,
-                  ioType: IOType.doo,
-                  channel: i,
-                );
-              }),
+              ...widget.doCfg.asMap().entries.where((e) => e.value.visible).map(
+                (e) {
+                  final c = e.value;
+                  return _dragIO(
+                    title: c.name,
+                    icon: Icons.toggle_off,
+                    ioType: IOType.doo,
+                    channel: e.key,
+                  );
+                },
+              ),
             ]),
 
             _group('Matemática', Colors.blueAccent, [
