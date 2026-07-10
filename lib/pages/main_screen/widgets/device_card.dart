@@ -21,6 +21,9 @@ class DeviceCard extends StatelessWidget {
         ? 'Conectado${device.ipAddress != null ? ' - ${device.ipAddress}' : ''}'
         : 'Desconectado';
 
+    // Placeholder shown until the backend actually sends this field.
+    final fwText = 'Firmware: ${device.fwVersion ?? 'N/D'}';
+
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: () {
@@ -31,7 +34,8 @@ class DeviceCard extends StatelessWidget {
         );
       },
       child: Container(
-        height: 120,
+        // Increased from 120 to fit the new firmware line below the status.
+        height: 140,
         decoration: BoxDecoration(
           color: const Color(0xFF1B1B1B),
           borderRadius: BorderRadius.circular(14),
@@ -89,6 +93,17 @@ class DeviceCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 2),
+                  // Firmware version line, placed right below the status
+                  // line as its own row.
+                  SelectableText(
+                    fwText,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                    ),
                   ),
                 ],
               ),

@@ -472,7 +472,54 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
         : Scaffold(
             appBar: AppBar(
               backgroundColor: const Color.fromARGB(255, 35, 35, 35),
-              title: Text(widget.device.name),
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(widget.device.name),
+                  const SizedBox(width: 10),
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: widget.device.isConnected
+                          ? Colors.greenAccent
+                          : Colors.redAccent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      widget.device.isConnected
+                          ? 'Conectado${widget.device.ipAddress != null ? ' - ${widget.device.ipAddress}' : ''}'
+                          : 'Desconectado',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: widget.device.isConnected
+                            ? Colors.greenAccent
+                            : Colors.redAccent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Firmware version, shown to the right of the status.
+                  // Falls back to a placeholder until the backend sends it.
+                  Flexible(
+                    child: Text(
+                      'FW: ${widget.device.fwVersion ?? 'N/D'}',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white54,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               leading: IconButton(
                 tooltip: 'Voltar',
                 icon: const Icon(Icons.arrow_back),
