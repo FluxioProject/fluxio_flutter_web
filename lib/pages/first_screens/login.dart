@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/config/app_config.dart';
 import 'package:tcc_flutter/pages/main_screen/cards_page.dart';
 import 'package:tcc_flutter/pages/first_screens/create_account.dart';
 import 'package:tcc_flutter/pages/first_screens/forgot_password.dart';
@@ -52,6 +53,8 @@ class _LoginPageState extends State<LoginPage> {
         MaterialPageRoute(builder: (_) => const CardsPage()),
       );
     } catch (e) {
+      print("API KEY FLUTTER: '${AppConfig.apiKey}'");
+      print("TAMANHO: ${AppConfig.apiKey.length}");
       showMessage(
         context,
         e.toString().replaceAll('Exception:', '').trim(),

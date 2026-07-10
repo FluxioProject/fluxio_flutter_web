@@ -121,7 +121,6 @@ class MqttManager {
   // Called by mqtt_client right before it attempts an automatic reconnect.
   void _onAutoReconnect() {
     isReconnectingNotifier.value = true;
-    debugPrint('[MQTT] Connection lost, attempting automatic reconnect...');
   }
 
   // Called by mqtt_client after an automatic reconnect succeeds.

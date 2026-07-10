@@ -22,6 +22,10 @@ class _CardsPageState extends State<CardsPage> {
   String _query = '';
   final Set<String> _subscribedDeviceIds = {};
 
+  // Tracks whether a manual refresh is currently in progress, so the
+  // button can show a spinner and avoid firing multiple times at once.
+  bool _refreshing = false;
+
   List<Device> get filteredDevices {
     final devices = appState.devices;
 
@@ -60,6 +64,21 @@ class _CardsPageState extends State<CardsPage> {
     }
   }
 
+  // Forces the broker to redeliver the retained status message for every
+  // device we already know about, by unsubscribing and resubscribing.
+  // Regular MQTT status updates are retained-only (published once when the
+  // device connects), so this is the only way to pull a fresh snapshot
+  // without waiting for the device to reconnect on its own.
+  void _refreshDeviceStatuses() {
+    for (final d in appState.devices) {
+      final topic = 'device/${d.deviceId}/status';
+      mqttManager.unsubscribe(topic);
+      mqttManager.subscribe(topic, (payload) {
+        _handleStatusMessage(d.deviceId, payload);
+      });
+    }
+  }
+
   void _handleStatusMessage(String deviceId, String payload) {
     try {
       final decoded = jsonDecode(payload);
@@ -82,6 +101,49 @@ class _CardsPageState extends State<CardsPage> {
     if (!mounted) return;
     setState(() {});
     _syncDeviceSubscriptions();
+  }
+
+  // Manual refresh: forces an MQTT reconnect if the socket is down (as a
+  // fallback in case autoReconnect misbehaves), reloads the device list
+  // from the backend, and re-requests status for every device.
+  Future<void> _handleRefresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+
+    try {
+      if (!mqttManager.isConnected()) {
+        // NOTE: adjust this call if your MqttManager exposes a dedicated
+        // "forceReconnect" method instead of reusing initializeMqtt.
+        await mqttManager.initializeMqtt(context, true);
+      }
+
+      if (!mounted) return;
+
+      // NOTE: assuming appState exposes a getDevices(context) method that
+      // refetches the device list from the backend, matching the naming
+      // used elsewhere in this file (createDevice, deleteDevice, etc).
+      // Rename this call if the actual method differs.
+      await appState.getDevices(context);
+
+      if (!mounted) return;
+
+      _syncDeviceSubscriptions();
+      _refreshDeviceStatuses();
+
+      if (mounted) {
+        showMessage(context, 'Lista atualizada', false);
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(
+          context,
+          e.toString().replaceAll('Exception:', '').trim(),
+          true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
   }
 
   @override
@@ -200,6 +262,22 @@ class _CardsPageState extends State<CardsPage> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 40,
+              width: 40,
+              child: IconButton(
+                tooltip: 'Atualizar (reconecta MQTT e recarrega dispositivos)',
+                onPressed: _refreshing ? null : _handleRefresh,
+                icon: _refreshing
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
               ),
             ),
             Spacer(),

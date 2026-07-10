@@ -75,7 +75,12 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
   int _retryCount = 0;
   static const int maxRetries = 3;
   static const int retryIntervalSec = 3;
-  
+
+  // Timestamp of the last retry attempt, tracked separately from
+  // _watchdogStart so that sending a retry doesn't distort the timeout
+  // math used to decide whether telemetry is still flowing.
+  DateTime? _lastRetryAt;
+
   @override
   void initState() {
     super.initState();
@@ -136,7 +141,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
       setState(() {});
     } catch (e) {
-      debugPrint('Erro ao carregar canais: $e');
+      showMessage(context, 'Erro ao carregar canais: $e', true);
     } finally {
       if (mounted) {
         setState(() => _loadingChannels = false);
@@ -237,6 +242,13 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
           lastRx = DateTime.now();
           _watchdogStart = lastRx;
 
+          // Telemetry actually arrived, so the device is alive again.
+          // Reset the retry counter here — this is the only place it
+          // should be reset, since it reflects real data flow rather
+          // than a timing window that retries themselves can distort.
+          _retryCount = 0;
+          _lastRetryAt = null;
+
           for (int i = 0; i < 4; i++) {
             aiHistory[i].add(SparkPoint(t.ai[i], DateTime.now()));
             aoHistory[i].add(SparkPoint(t.ao[i], DateTime.now()));
@@ -258,6 +270,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
   void _startWatchdog() {
     _watchdogTimer?.cancel();
     _retryCount = 0;
+    _lastRetryAt = null;
 
     _watchdogTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _connectionLostHandled) return;
@@ -269,52 +282,60 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
       if (referenceTime == null) return;
 
-      final diff = now.difference(referenceTime).inSeconds;
+      // How long it's actually been since real data last arrived. This is
+      // never mutated by a retry attempt, so it keeps climbing every
+      // second the device stays silent — that's what lets the retry
+      // counter actually reach maxRetries instead of resetting itself.
+      final diffSinceLastData = now.difference(referenceTime).inSeconds;
 
-      if (diff >= telemetryTimeoutSec) {
-        if (_retryCount < maxRetries) {
-          _retryCount++;
-
-          showMessage(
-            context,
-            'Sem resposta do dispositivo, tentando reconectar ($_retryCount/$maxRetries)...',
-            true,
-          );
-
-          // Try to resend the telemetry command. If MQTT has already
-          // reconnected in the background, this restarts the data stream.
-          mqttManager.publish(topicControl, jsonEncode({'telemetry': true}));
-
-          // Wait for the next check before counting another retry to avoid
-          // firing multiple attempts in the same second.
-          _watchdogStart = now.subtract(
-            Duration(seconds: telemetryTimeoutSec - retryIntervalSec),
-          );
-          return;
-        }
-
-        // Retry attempts are exhausted.
-        _connectionLostHandled = true;
-
-        mqttManager.publish(topicControl, jsonEncode({'telemetry': false}));
-
-        showMessage(context, 'Sem conexão com dispositivo', true);
-        setState(() {
-          _loadingMQTT = false;
-        });
-
-        _telemetryKeepAlive?.cancel();
-
-        // Leave the screen automatically.
-        Future.delayed(const Duration(milliseconds: 400), () {
-          if (mounted) {
-            Navigator.of(context).pop();
-          }
-        });
-      } else {
-        // Telemetry is flowing again, so reset the retry counter.
-        _retryCount = 0;
+      if (diffSinceLastData < telemetryTimeoutSec) {
+        // Telemetry hasn't timed out — nothing to do. Do NOT reset
+        // _retryCount here; it's only reset when data actually resumes,
+        // inside the telemetry subscription callback above.
+        return;
       }
+
+      // We're past the timeout. Only fire a new retry if enough time has
+      // passed since the previous one.
+      final canRetryNow = _lastRetryAt == null ||
+          now.difference(_lastRetryAt!).inSeconds >= retryIntervalSec;
+
+      if (!canRetryNow) return;
+
+      if (_retryCount < maxRetries) {
+        _retryCount++;
+        _lastRetryAt = now;
+
+        showMessage(
+          context,
+          'Sem resposta do dispositivo, tentando reconectar ($_retryCount/$maxRetries)...',
+          true,
+        );
+
+        // Try to resend the telemetry command. If MQTT has already
+        // reconnected in the background, this restarts the data stream.
+        mqttManager.publish(topicControl, jsonEncode({'telemetry': true}));
+        return;
+      }
+
+      // Retry attempts are exhausted.
+      _connectionLostHandled = true;
+
+      mqttManager.publish(topicControl, jsonEncode({'telemetry': false}));
+
+      showMessage(context, 'Sem conexão com dispositivo', true);
+      setState(() {
+        _loadingMQTT = false;
+      });
+
+      _telemetryKeepAlive?.cancel();
+
+      // Leave the screen automatically.
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      });
     });
   }
 
@@ -682,38 +703,6 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       ),
     );
   }
-
-  // Widget _headerStatus() {
-  //   final connected = mqttManager.isConnected();
-  //   return Container(
-  //     padding: const EdgeInsets.all(12),
-  //     decoration: BoxDecoration(
-  //       color: const Color(0xFF1B1B1B),
-  //       borderRadius: BorderRadius.circular(12),
-  //       border: Border.all(color: Colors.white10),
-  //     ),
-  //     child: Row(
-  //       children: [
-  //         Icon(
-  //           connected && !isStale ? Icons.check_circle : Icons.error_outline,
-  //           size: 16,
-  //         ),
-  //         const SizedBox(width: 8),
-  //         Text(
-  //           connected
-  //               ? (isStale ? 'Sem atualização' : 'Atualizando (1s)')
-  //               : 'Desconectado',
-  //         ),
-  //         const Spacer(),
-  //         Text(
-  //           lastRx == null
-  //               ? '-'
-  //               : '${lastRx!.hour.toString().padLeft(2, '0')}:${lastRx!.minute.toString().padLeft(2, '0')}:${lastRx!.second.toString().padLeft(2, '0')}',
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
 
   Widget _ioTab(Telemetry? t) {
     return SingleChildScrollView(

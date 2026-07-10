@@ -205,13 +205,21 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
       // valida versão
       if (json['v'] != 2 && json['v'] != 1) {
-        debugPrint('Versão de lógica não suportada');
+        showMessage(
+          context,
+          'Versão de lógica não suportada. Apenas v1 e v2 são suportadas.',
+          true,
+        );
         return;
       }
 
       _deserializeLogic(json);
     } catch (e) {
-      debugPrint('Erro ao decodificar lógica: $e');
+      showMessage(
+        context,
+        'Erro ao decodificar lógica recebida do dispositivo.',
+        true,
+      );
     }
   }
 

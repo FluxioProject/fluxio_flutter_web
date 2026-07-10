@@ -205,6 +205,28 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // Refreshes the device list (and MQTT credentials) from the backend,
+  // without touching the current login session. Used by the manual
+  // refresh button on the devices screen.
+  //
+  // NOTE: this reuses 'users/persist' since that is the only endpoint we've
+  // seen that returns the full device list + mqtt config together. If your
+  // backend has a dedicated endpoint (e.g. 'devices/get-all'), swap the
+  // call below to that instead — this works either way as long as the
+  // response shape has a 'devices' list and optionally an 'mqtt' object.
+  Future<void> getDevices(BuildContext context) async {
+    final obj = await _session.getObj('users/persist', context);
+
+    final list = obj['devices'] as List? ?? [];
+    devices = list.map((e) => Device.fromBackend(e)).toList();
+
+    if (obj['mqtt'] is Map<String, dynamic>) {
+      mqtt = obj['mqtt'];
+    }
+
+    notifyListeners();
+  }
+
   // Updates device status (online/ip) from an MQTT message.
   void updateDeviceStatus({
     required String deviceId,
