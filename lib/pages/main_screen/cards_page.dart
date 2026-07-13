@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:tcc_flutter/pages/main_screen/manage_devices/add_device.dart';
@@ -21,6 +22,7 @@ class _CardsPageState extends State<CardsPage> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _query = '';
   final Set<String> _subscribedDeviceIds = {};
+  Timer? _freshnessTicker;
 
   // Tracks whether a manual refresh is currently in progress, so the
   // button can show a spinner and avoid firing multiple times at once.
@@ -43,6 +45,13 @@ class _CardsPageState extends State<CardsPage> {
     super.initState();
     appState.addListener(_onUserUpdated);
     _setupMqtt();
+
+    // Re-renders every second so a device whose heartbeat stopped
+    // arriving flips to "Desconectado" on its own, without waiting for
+    // another MQTT message to trigger a rebuild.
+    _freshnessTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _setupMqtt() async {
@@ -86,11 +95,15 @@ class _CardsPageState extends State<CardsPage> {
 
       final online = decoded['online'] as bool?;
       final ip = decoded['ip'] as String?;
+      final uptime = decoded['uptime'] as int?;
+      final fwVersion = decoded['fwVersion'] as String?; // NEW
 
       appState.updateDeviceStatus(
         deviceId: deviceId,
         isConnected: online,
         ipAddress: ip,
+        uptimeSec: uptime,
+        fwVersion: fwVersion, // NEW
       );
     } catch (_) {
       // Ignore invalid payloads.
@@ -148,13 +161,13 @@ class _CardsPageState extends State<CardsPage> {
 
   @override
   void dispose() {
+    _freshnessTicker?.cancel();
     _searchCtrl.dispose();
     appState.removeListener(_onUserUpdated);
 
     for (final id in _subscribedDeviceIds) {
       mqttManager.unsubscribe('device/$id/status');
     }
-    // Do not disconnect here because DeviceDetailsPage shares the MQTT connection.
 
     super.dispose();
   }
@@ -368,8 +381,10 @@ class _CardsPageState extends State<CardsPage> {
             ),
             itemBuilder: (context, index) {
               final dev = filteredDevices[index];
+              final effectivelyConnected =
+                  dev.isConnected && appState.isDeviceFresh(dev.deviceId);
               return DeviceCard(
-                device: dev,
+                device: dev.copyWith(isConnected: effectivelyConnected),
                 onDelete: () async {
                   final confirm = await showDialog<bool>(
                     context: context,

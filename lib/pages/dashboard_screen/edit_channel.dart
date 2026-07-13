@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:tcc_flutter/backend_api/api_communication.dart';
+import 'package:tcc_flutter/services/mqtt_manager.dart';
 import 'package:tcc_flutter/widgets/show_message.dart';
 import '../../models/channel_config.dart';
 
@@ -58,6 +59,14 @@ Future<void> showEditChannelDialog({
             : (ok ? 'Atualizado com sucesso.' : 'Erro ao atualizar.'),
         ok,
       );
+
+      // NOVO: avisa o ESP para recarregar os canais do backend
+      if (ok) {
+        mqttManager.publish(
+          'device/$deviceId/control',
+          '{"type":"get_channels"}',
+        );
+      }
     } catch (e) {
       showMessage(
         context,

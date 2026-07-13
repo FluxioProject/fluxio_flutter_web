@@ -14,6 +14,14 @@ class AppState extends ChangeNotifier {
   bool get isSyncing => _syncing;
   List<Device> devices = [];
   Map<String, dynamic>? mqtt;
+  final Map<String, DateTime> _lastStatusRx = {};
+  static const int statusTimeoutSec = 5;
+
+  bool isDeviceFresh(String deviceId) {
+    final t = _lastStatusRx[deviceId];
+    if (t == null) return false;
+    return DateTime.now().difference(t).inSeconds < statusTimeoutSec;
+  }
 
   // Checks with the backend whether an existing session can skip the login page.
   Future<void> tryPersistLogin(BuildContext context) async {
@@ -232,28 +240,41 @@ class AppState extends ChangeNotifier {
     required String deviceId,
     bool? isConnected,
     String? ipAddress,
+    int? uptimeSec,
+    String? fwVersion, // NEW
   }) {
+    _lastStatusRx[deviceId] = DateTime.now();
     final idx = devices.indexWhere((d) => d.deviceId == deviceId);
     if (idx == -1) return;
 
     devices[idx] = devices[idx].copyWith(
       isConnected: isConnected,
       ipAddress: ipAddress,
+      uptimeSec: uptimeSec,
+      fwVersion: fwVersion, // NEW
     );
     notifyListeners();
   }
 
-  // Deletes a device.
-  Future<void> deleteProduct({
-    required String productId,
+  Future<void> refreshLatestFirmwareVersion({
+    required String deviceId,
     required BuildContext context,
   }) async {
-    if (_syncing) throw Exception("Sincronização em andamento");
-
     try {
-      await _session.delete('products/delete-product/$productId');
+      final obj = await _session.getObj(
+        'devices/$deviceId/firmware/latest',
+        context,
+      );
+
+      final idx = devices.indexWhere((d) => d.deviceId == deviceId);
+      if (idx == -1) return;
+
+      devices[idx] = devices[idx].copyWith(
+        latestFwVersion: obj['version'] as String?,
+      );
+      notifyListeners();
     } catch (e) {
-      rethrow;
+      // 404 é esperado se o device nunca recebeu firmware — ignora silenciosamente.
     }
   }
 

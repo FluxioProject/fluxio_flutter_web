@@ -44,7 +44,7 @@ class LogicBlock {
       case BlockType.compare:
         return 2;
       case BlockType.timer:
-        return 1;
+        return 2;
       default:
         return 1;
     }
