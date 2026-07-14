@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:tcc_flutter/backend_api/api_communication.dart';
 import 'package:tcc_flutter/models/channel_config.dart';
 import 'package:tcc_flutter/models/device.dart';
+import 'package:tcc_flutter/services/app_state.dart';
 import 'package:tcc_flutter/services/mqtt_manager.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/widgets/blocks.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/widgets/enums.dart';
@@ -43,6 +45,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   bool linkMode = false;
   bool isLinkingMode = false;
   bool toolboxVisible = true;
+  bool _loadedFromBackend = false;
 
   final Set<LogicBlock> invalidBlocks = {};
 
@@ -92,6 +95,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   List<dynamic>? _lastSentBlocksJson;
 
   static const Duration _sendConfirmTimeout = Duration(seconds: 6);
+
+  final Session _session = Session();
 
   // ---------------------------------------------------------------------
   // LÓGICA BOOLEANA (AND / OR / NOT) — SEM MUDANÇA DE FIRMWARE/PROTOCOLO
@@ -226,6 +231,12 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       'id': int.parse(b.id.substring(1)),
       't': b.type.index,
       'in': inputs,
+      // NEW: posição no canvas. O firmware ignora campos desconhecidos
+      // (mesma lógica do 'lg'), então é seguro mandar isso também no
+      // payload MQTT — mas o motivo real de existir é o backend, pra
+      // restaurar o layout exato ao reabrir o editor sem o device online.
+      'x': b.position.dx,
+      'y': b.position.dy,
     };
 
     if (b.type == BlockType.io) {
@@ -261,10 +272,33 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     };
   }
 
+  Future<void> _loadLogicFromBackend() async {
+    try {
+      final resp = await _session.getObj(
+        'devices/${widget.device.deviceId}/logic',
+        context,
+      );
+
+      // getObj decodifica JSON quando dá, senão devolve a string crua do
+      // corpo (ex.: a mensagem 404 "Nenhuma lógica salva..." que o backend
+      // manda como texto puro). Só tratamos como sucesso se veio um Map
+      // com os campos esperados.
+      if (resp is Map<String, dynamic> && resp.containsKey('blocks')) {
+        _deserializeLogic(resp);
+        _loadedFromBackend = true;
+      }
+      // Se não: nenhuma lógica salva ainda pra esse device, ou erro —
+      // segue o fluxo normal (pedir pro device via MQTT).
+    } catch (e) {
+      // Sem conexão com o backend — não é fatal, só cai no fluxo MQTT normal.
+      print('Erro ao carregar lógica do backend: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _focusNode.requestFocus();
       _showRiskWarning();
       showMessage(
@@ -272,15 +306,27 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         'Dica: Double click em um bloco e depois click em outra para fazer a ligação.',
         false,
       );
+
       mqttManager.subscribe(
         'device/${widget.device.deviceId}/logic',
         _onLogicMessage,
       );
-      mqttManager.publish(
-        'device/${widget.device.deviceId}/control',
-        jsonEncode({'type': 'logic_get'}),
-      );
-      _startLogicTimeout();
+
+      // NEW: tenta carregar do backend primeiro — funciona mesmo com o
+      // device offline, e já traz x/y salvos (o device nunca soube guardar
+      // isso). Se não houver nada salvo (404) ou der erro de rede, cai
+      // no fluxo antigo (pedir pro device via MQTT).
+      await _loadLogicFromBackend();
+
+      if (!_loadedFromBackend) {
+        mqttManager.publish(
+          'device/${widget.device.deviceId}/control',
+          jsonEncode({'type': 'logic_get'}),
+        );
+        _startLogicTimeout();
+      } else {
+        _logicReceived = true; // evita o aviso de "nenhuma lógica encontrada"
+      }
     });
   }
 
@@ -806,6 +852,61 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     );
   }
 
+  Future<void> _saveLogicToBackend(Map<String, dynamic> logicJson) async {
+    try {
+      await _session.postObj(
+        'devices/${widget.device.deviceId}/logic',
+        logicJson,
+        context,
+      );
+      mqttManager.publish(
+        'device/${widget.device.deviceId}/control',
+        jsonEncode({'type': 'logic_sync'}),
+        retain: true,
+      );
+    } catch (e) {
+      if (mounted) {
+        showMessage(
+          context,
+          'Lógica enviada ao device, mas não foi possível salvar no backend.',
+          true,
+        );
+      }
+    }
+  }
+
+  void _showOfflineSaveNotice() {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          backgroundColor: panel,
+          title: const Text(
+            'Dispositivo offline',
+            style: TextStyle(color: Colors.orangeAccent),
+          ),
+          content: const Text(
+            'O dispositivo está offline no momento. A lógica foi salva no '
+            'backend e será enviada automaticamente para o dispositivo assim '
+            'que ele se reconectar.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'OK',
+                style: TextStyle(color: Colors.greenAccent),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _compileAndSend() {
     invalidBlocks.clear();
     final errors = <String>[];
@@ -906,9 +1007,13 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       jsonEncode(payload),
     );
 
-    // NEW: ask the device to confirm what it actually persisted, instead
-    // of just trusting the publish() call above.
-    _startSendConfirmation(logicJson['blocks'] as List<dynamic>);
+    if (appState.isDeviceFresh(widget.device.deviceId)) {
+      _startSendConfirmation(logicJson['blocks'] as List<dynamic>);
+    } else {
+      _showOfflineSaveNotice();
+    }
+
+    _saveLogicToBackend(logicJson);
   }
 
   void _showCompileErrors(List<String> errors) {

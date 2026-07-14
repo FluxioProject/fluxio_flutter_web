@@ -54,16 +54,17 @@ class MqttManager {
         mqttManager.usermqtt = mqtt['user'];
         mqttManager.passwordmqtt = mqtt['pass'];
 
-        debugPrint('[MQTT] Credentials loaded from appState (user=${mqttManager.usermqtt})');
-
-        final List ports = mqtt['ports'];
-        final int port = int.parse(
-          ports.contains('8884') ? '8884' : ports.first.toString(),
+        debugPrint(
+          '[MQTT] Credentials loaded from appState (user=${mqttManager.usermqtt})',
         );
+
+        final int port = 8884;
 
         final String url = 'wss://${mqtt['host']}/mqtt';
 
-        debugPrint('[MQTT] Building client for url=$url port=$port clientId=$clientId');
+        debugPrint(
+          '[MQTT] Building client for url=$url port=$port clientId=$clientId',
+        );
 
         mqttManager.client = MqttBrowserClient.withPort(
           url,
@@ -81,7 +82,9 @@ class MqttManager {
         }
       }
     } else {
-      debugPrint('[MQTT] initializeMqtt called with isCon=false, skipping connect');
+      debugPrint(
+        '[MQTT] initializeMqtt called with isCon=false, skipping connect',
+      );
     }
 
     if (context.mounted) {
@@ -91,7 +94,9 @@ class MqttManager {
   }
 
   Future<bool> connect(BuildContext context) async {
-    debugPrint('[MQTT] connect() called (isConnected=$_isConnected, isConnecting=$_isConnecting)');
+    debugPrint(
+      '[MQTT] connect() called (isConnected=$_isConnected, isConnecting=$_isConnecting)',
+    );
 
     if (_isConnected || _isConnecting) {
       debugPrint('[MQTT] connect() aborted: already connected or connecting');
@@ -117,14 +122,20 @@ class MqttManager {
           .authenticateAs(usermqtt, passwordmqtt)
           .startClean();
 
-      debugPrint('[MQTT] Connection message built, calling client.connect()...');
+      debugPrint(
+        '[MQTT] Connection message built, calling client.connect()...',
+      );
 
       await client!.connect();
 
-      debugPrint('[MQTT] client.connect() returned, state=${client!.connectionStatus?.state}');
+      debugPrint(
+        '[MQTT] client.connect() returned, state=${client!.connectionStatus?.state}',
+      );
 
       if (client!.connectionStatus?.state == MqttConnectionState.connected) {
-        debugPrint('[MQTT] Connection SUCCESSFUL, setting up handlers and listeners');
+        debugPrint(
+          '[MQTT] Connection SUCCESSFUL, setting up handlers and listeners',
+        );
         _setupOnDisconnectedHandler();
         _setupOnConnectedHandler();
         _listenToMessages(context);
@@ -133,7 +144,9 @@ class MqttManager {
         return true;
       }
 
-      debugPrint('[MQTT] Connection FAILED, final state=${client!.connectionStatus?.state}');
+      debugPrint(
+        '[MQTT] Connection FAILED, final state=${client!.connectionStatus?.state}',
+      );
       _isConnecting = false;
       return false;
     } catch (e) {
@@ -173,7 +186,9 @@ class MqttManager {
       _isConnected = true;
       isReconnectingNotifier.value = false;
 
-      debugPrint('[MQTT] onConnected fired, resubscribing to ${subscriptions.length} topic(s)');
+      debugPrint(
+        '[MQTT] onConnected fired, resubscribing to ${subscriptions.length} topic(s)',
+      );
 
       try {
         for (final topic in subscriptions.keys) {
@@ -210,10 +225,14 @@ class MqttManager {
         debugPrint('[MQTT] Dispatching to topic-specific handler for $topic');
         subscriptions[topic]!(payload);
       } else if (globalCallback != null) {
-        debugPrint('[MQTT] No topic-specific handler for $topic, dispatching to globalCallback');
+        debugPrint(
+          '[MQTT] No topic-specific handler for $topic, dispatching to globalCallback',
+        );
         globalCallback!(topic, payload);
       } else {
-        debugPrint('[MQTT] WARNING: no handler registered for $topic, message dropped');
+        debugPrint(
+          '[MQTT] WARNING: no handler registered for $topic, message dropped',
+        );
       }
     });
   }
@@ -223,7 +242,9 @@ class MqttManager {
     subscriptions[topic] = onMessage;
 
     if (!isConnected()) {
-      debugPrint('[MQTT] Not connected yet, subscription for $topic saved for later');
+      debugPrint(
+        '[MQTT] Not connected yet, subscription for $topic saved for later',
+      );
       return;
     }
 
@@ -240,7 +261,9 @@ class MqttManager {
     subscriptions.remove(topic);
 
     if (!isConnected()) {
-      debugPrint('[MQTT] Not connected, skipping broker unsubscribe for $topic');
+      debugPrint(
+        '[MQTT] Not connected, skipping broker unsubscribe for $topic',
+      );
       return;
     }
 
@@ -252,7 +275,7 @@ class MqttManager {
     }
   }
 
-  void publish(String topic, String message) {
+  void publish(String topic, String message, {bool retain = false}) {
     if (!isConnected()) {
       debugPrint('[MQTT ⬆ TX] SKIPPED (not connected) $topic: $message');
       return;
@@ -263,13 +286,20 @@ class MqttManager {
 
     final builder = MqttClientPayloadBuilder();
     builder.addString(message);
-    client!.publishMessage(topic, MqttQos.atLeastOnce, builder.payload!);
+    client!.publishMessage(
+      topic,
+      MqttQos.atLeastOnce,
+      builder.payload!,
+      retain: retain,
+    );
     debugPrint('[MQTT] publishMessage() call completed for $topic');
   }
 
   void clearSubscriptions() {
     final List<String> topics = subscriptions.keys.toList();
-    debugPrint('[MQTT] clearSubscriptions() called for ${topics.length} topic(s): $topics');
+    debugPrint(
+      '[MQTT] clearSubscriptions() called for ${topics.length} topic(s): $topics',
+    );
 
     try {
       for (final topic in topics) {

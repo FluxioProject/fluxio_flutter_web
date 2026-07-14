@@ -16,6 +16,7 @@ import 'package:tcc_flutter/widgets/gradient_bg.dart';
 import '../../services/mqtt_manager.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:html' as html;
 
 enum ViewMode { compact, detailed }
 
@@ -634,6 +635,40 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
     );
   }
 
+  void _exportAlarmHistoryCsv() {
+    if (alarmHistory.isEmpty) {
+      showMessage(context, 'Não há alertas para exportar.', true);
+      return;
+    }
+
+    final buffer = StringBuffer();
+
+    buffer.writeln('Data/Hora,Canal,Tipo,Valor,Minimo,Maximo');
+
+    for (final a in alarmHistory.reversed) {
+      buffer.writeln(
+        '${_formatAlarmTime(a.time)},'
+        '${a.channel},'
+        '${a.high ? "Acima" : "Abaixo"},'
+        '${a.value.toStringAsFixed(2)},'
+        '${a.min.toStringAsFixed(2)},'
+        '${a.max.toStringAsFixed(2)}',
+      );
+    }
+
+    final bytes = utf8.encode(buffer.toString());
+
+    final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+
+    final anchor = html.AnchorElement(href: url)
+      ..download =
+          'historico_alertas_${widget.device.name}_${DateTime.now().millisecondsSinceEpoch}.csv'
+      ..click();
+
+    html.Url.revokeObjectUrl(url);
+  }
+
   void _showAlarmHistory() {
     showDialog(
       context: context,
@@ -667,6 +702,11 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
           ),
         ),
         actions: [
+          TextButton.icon(
+            onPressed: _exportAlarmHistoryCsv,
+            icon: const Icon(Icons.download),
+            label: const Text('Exportar CSV'),
+          ),
           TextButton(
             onPressed: () {
               setState(() {
