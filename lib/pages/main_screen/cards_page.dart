@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tcc_flutter/backend_api/api_communication.dart';
+import 'package:tcc_flutter/models/channel_config.dart';
 import 'package:tcc_flutter/pages/main_screen/manage_devices/add_device.dart';
 import 'package:tcc_flutter/pages/first_screens/login.dart';
 import 'package:tcc_flutter/pages/main_screen/manage_user/edit_account.dart';
@@ -28,6 +31,9 @@ class _CardsPageState extends State<CardsPage> {
   // button can show a spinner and avoid firing multiple times at once.
   bool _refreshing = false;
 
+  DateTime? _lastAnyStatusRx;
+  bool _forcingReconnect = false;
+
   List<Device> get filteredDevices {
     final devices = appState.devices;
 
@@ -50,8 +56,45 @@ class _CardsPageState extends State<CardsPage> {
     // arriving flips to "Desconectado" on its own, without waiting for
     // another MQTT message to trigger a rebuild.
     _freshnessTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        _watchdogCheckConnection();
+      }
     });
+  }
+
+  void _watchdogCheckConnection() {
+    if (_forcingReconnect) return;
+    if (appState.devices.isEmpty) return;
+
+    final last = _lastAnyStatusRx;
+    final staleForTooLong = last == null
+        ? false
+        : DateTime.now().difference(last).inSeconds > 15;
+
+    if (staleForTooLong) {
+      _forcingReconnect = true;
+      debugPrint('[Watchdog] Sem status há >15s, forçando reconexão MQTT');
+
+      // NOVO: limpa a marca de "já inscrito" JUNTO com o disconnect, já
+      // que clearSubscriptions() no MqttManager já apaga os handlers reais
+      // — sem isso, _syncDeviceSubscriptions() acha que já está tudo
+      // inscrito e pula o subscribe() de verdade, deixando o app "conectado"
+      // mas surdo pra sempre (loop de reconexão infinito).
+      _subscribedDeviceIds.clear();
+
+      // NOVO: dá uma folga antes de checar de novo, pra não repetir o
+      // watchdog no próximo tick de 1s enquanto ainda estamos no meio da
+      // reconexão.
+      _lastAnyStatusRx = DateTime.now();
+
+      mqttManager.disconnect();
+      mqttManager.initializeMqtt(context, true).then((_) {
+        if (!mounted) return;
+        _syncDeviceSubscriptions();
+        _forcingReconnect = false;
+      });
+    }
   }
 
   Future<void> _setupMqtt() async {
@@ -89,6 +132,7 @@ class _CardsPageState extends State<CardsPage> {
   }
 
   void _handleStatusMessage(String deviceId, String payload) {
+    _lastAnyStatusRx = DateTime.now();
     try {
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic>) return;
@@ -172,69 +216,354 @@ class _CardsPageState extends State<CardsPage> {
     super.dispose();
   }
 
-  Future<void> _editDeviceName(BuildContext context, Device device) async {
-    final nameCtrl = TextEditingController(text: device.name);
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Editar dispositivo'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
+  Widget _channelEditRow({
+    required TextEditingController nameCtrl,
+    required ChannelConfig channel,
+    required void Function(void Function()) setLocal,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
               controller: nameCtrl,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => Navigator.pop(ctx, true),
               decoration: const InputDecoration(
-                label: Text('Nome do dispositivo'),
-                hintText: 'Digite o novo nome',
-                border: OutlineInputBorder(),
                 isDense: true,
+                border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 12),
-            Text(
-              'ID: ${device.deviceId}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color.fromARGB(255, 63, 146, 66),
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Salvar', style: TextStyle(color: Colors.white)),
+          const SizedBox(width: 10),
+          Checkbox(
+            value: channel.visible,
+            onChanged: (v) => setLocal(() => channel.visible = v ?? true),
           ),
+          const Text('Visível', style: TextStyle(fontSize: 12)),
         ],
       ),
     );
+  }
 
-    final newName = nameCtrl.text.trim();
-    if (confirm != true || newName.isEmpty || newName == device.name) return;
+  Widget _channelGroupSection(
+    String title,
+    List<ChannelConfig> list,
+    List<TextEditingController> ctrls,
+    void Function(void Function()) setLocal,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.white70,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (int i = 0; i < list.length; i++)
+            _channelEditRow(
+              nameCtrl: ctrls[i],
+              channel: list[i],
+              setLocal: setLocal,
+            ),
+        ],
+      ),
+    );
+  }
 
+  Future<void> _editDeviceName(BuildContext context, Device device) async {
+    final nameCtrl = TextEditingController(text: device.name);
+
+    // Mesma estrutura usada em DeviceDetailsPage: 4 canais fixos por tipo.
+    final aiCfg = List.generate(4, (i) => ChannelConfig(name: 'AI ${i + 1}'));
+    final aoCfg = List.generate(4, (i) => ChannelConfig(name: 'AO ${i + 1}'));
+    final diCfg = List.generate(
+      4,
+      (i) => ChannelConfig(name: 'DI ${i + 1}', analog: false),
+    );
+    final doCfg = List.generate(
+      4,
+      (i) => ChannelConfig(name: 'DO ${i + 1}', analog: false),
+    );
+
+    bool channelsLoaded = false;
+
+    // 1) Nome dos canais vem do backend (mesma chamada usada em
+    // DeviceDetailsPage._loadAllChannelsFromBackend).
     try {
-      await appState.updateDeviceName(
-        deviceId: device.deviceId,
-        newName: newName,
-        context: context,
+      final res = await Session().getObj(
+        'devices/get-all-channels?deviceId=${device.deviceId}',
+        context,
       );
 
-      showMessage(context, 'Nome do dispositivo atualizado', false);
+      if (res is Map<String, dynamic>) {
+        void applyNames(List<ChannelConfig> list, Map<String, dynamic>? data) {
+          if (data == null) return;
+          data.forEach((key, value) {
+            final index = int.tryParse(key);
+            if (index == null || index >= list.length) return;
+            list[index].name =
+                value['channelName']?.toString() ?? list[index].name;
+          });
+        }
+
+        applyNames(aiCfg, res['ai']);
+        applyNames(aoCfg, res['ao']);
+        applyNames(diCfg, res['di']);
+        applyNames(doCfg, res['do']);
+        channelsLoaded = true;
+      }
     } catch (e) {
-      showMessage(
-        context,
-        e.toString().replaceAll('Exception:', '').trim(),
-        true,
+      // Segue sem os canais; o dialog avisa que não deu pra carregar.
+    }
+
+    // 2) 'visible' é local (mesma leitura usada em
+    // DeviceDetailsPage._loadChannelPrefs).
+    final prefs = await SharedPreferences.getInstance();
+
+    void applyVisible(List<ChannelConfig> list, String type) {
+      for (int i = 0; i < list.length; i++) {
+        final key = 'device_${device.deviceId}_${type}_$i';
+        final raw = prefs.getString(key);
+        if (raw == null) continue;
+        final data = jsonDecode(raw) as Map<String, dynamic>;
+        list[i].visible = data['visible'] ?? list[i].visible;
+      }
+    }
+
+    applyVisible(aiCfg, 'ai');
+    applyVisible(aoCfg, 'ao');
+    applyVisible(diCfg, 'di');
+    applyVisible(doCfg, 'do');
+
+    if (!mounted) return;
+
+    final groups = <String, List<ChannelConfig>>{
+      'ai': aiCfg,
+      'ao': aoCfg,
+      'di': diCfg,
+      'do': doCfg,
+    };
+
+    // Controllers por canal, pra edição de nome sem perder o texto
+    // digitado a cada rebuild do checkbox.
+    final ctrls = {
+      for (final entry in groups.entries)
+        entry.key: [
+          for (final c in entry.value) TextEditingController(text: c.name),
+        ],
+    };
+
+    // Guarda os nomes originais pra saber depois o que realmente mudou.
+    final oldNames = {
+      for (final entry in groups.entries)
+        entry.key: entry.value.map((c) => c.name).toList(),
+    };
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Editar dispositivo'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(top: 8, right: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => Navigator.pop(ctx, true),
+                    decoration: const InputDecoration(
+                      label: Text('Nome do dispositivo'),
+                      hintText: 'Digite o novo nome',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'ID: ${device.deviceId}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (!channelsLoaded) ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Não foi possível carregar os canais deste dispositivo.',
+                      style: TextStyle(
+                        color: Colors.orangeAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ] else ...[
+                    const Divider(height: 28),
+                    const Text(
+                      'Canais',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _channelGroupSection(
+                      'Entradas Analógicas',
+                      aiCfg,
+                      ctrls['ai']!,
+                      setLocal,
+                    ),
+                    _channelGroupSection(
+                      'Saídas Analógicas',
+                      aoCfg,
+                      ctrls['ao']!,
+                      setLocal,
+                    ),
+                    _channelGroupSection(
+                      'Entradas Digitais',
+                      diCfg,
+                      ctrls['di']!,
+                      setLocal,
+                    ),
+                    _channelGroupSection(
+                      'Saídas Digitais',
+                      doCfg,
+                      ctrls['do']!,
+                      setLocal,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color.fromARGB(255, 63, 146, 66),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'Salvar',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // Aplica o texto final dos controllers nos ChannelConfig antes de salvar.
+    for (final entry in groups.entries) {
+      final list = entry.value;
+      final typeCtrls = ctrls[entry.key]!;
+      for (int i = 0; i < list.length; i++) {
+        final typed = typeCtrls[i].text.trim();
+        if (typed.isNotEmpty) list[i].name = typed;
+      }
+    }
+
+    // 1) Nome do dispositivo — fluxo já existente, sem mudanças.
+    final newDeviceName = nameCtrl.text.trim();
+    if (newDeviceName.isNotEmpty && newDeviceName != device.name) {
+      try {
+        await appState.updateDeviceName(
+          deviceId: device.deviceId,
+          newName: newDeviceName,
+          context: context,
+        );
+        if (mounted) {
+          showMessage(context, 'Nome do dispositivo atualizado', false);
+        }
+      } catch (e) {
+        if (mounted) {
+          showMessage(
+            context,
+            e.toString().replaceAll('Exception:', '').trim(),
+            true,
+          );
+        }
+        return;
+      }
+    }
+
+    if (!channelsLoaded) return;
+
+    bool anyChannelNameChanged = false;
+
+    for (final entry in groups.entries) {
+      final type = entry.key;
+      final list = entry.value;
+
+      for (int i = 0; i < list.length; i++) {
+        final c = list[i];
+        final nameChanged = c.name != oldNames[type]![i];
+
+        // 2) Nome do canal -> mesmo endpoint usado em edit_channel.dart.
+        if (nameChanged) {
+          anyChannelNameChanged = true;
+          try {
+            final res = await Session().patchObj('devices/update-channel', {
+              'deviceId': device.deviceId,
+              'type': type,
+              'index': i,
+              'channelName': c.name,
+            }, context);
+
+            final msg = (res['message'] ?? 'Canal atualizado com sucesso.')
+                .toString();
+            showMessage(context, msg, false);
+          } catch (e) {
+            if (mounted) {
+              showMessage(
+                context,
+                e.toString().replaceAll('Exception:', '').trim(),
+                true,
+              );
+            }
+          }
+        }
+
+        // 3) 'visible' é só local — mesmo formato de
+        // DeviceDetailsPage._saveChannelPref, senão o dashboard e este
+        // popup ficam fora de sincronia.
+        final key = 'device_${device.deviceId}_${type}_$i';
+        await prefs.setString(
+          key,
+          jsonEncode({
+            'name': c.name,
+            'unit': c.unit,
+            'min': c.min,
+            'max': c.max,
+            'decimals': c.decimals,
+            'visible': c.visible,
+            'notifyMobile': c.notifyMobile,
+            'notifyEmail': c.notifyEmail,
+            'notifySms': c.notifySms,
+          }),
+        );
+      }
+    }
+
+    if (anyChannelNameChanged) {
+      mqttManager.publish(
+        'device/${device.deviceId}/control',
+        '{"type":"get_channels"}',
       );
     }
+
+    if (mounted) setState(() {});
   }
 
   @override

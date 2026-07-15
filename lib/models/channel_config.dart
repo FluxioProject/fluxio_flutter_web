@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
 class ChannelConfig {
   String name;
   String unit;
@@ -26,4 +30,22 @@ class ChannelConfig {
     this.mapMin = 0,
     this.mapMax = 100,
   });
+}
+
+Future<void> applyChannelVisibilityPrefs(
+  String deviceId,
+  Map<String, List<ChannelConfig>> groups,
+) async {
+  final prefs = await SharedPreferences.getInstance();
+  for (final entry in groups.entries) {
+    final type = entry.key;
+    final list = entry.value;
+    for (int i = 0; i < list.length; i++) {
+      final key = 'device_${deviceId}_${type}_$i';
+      final raw = prefs.getString(key);
+      if (raw == null) continue;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      list[i].visible = data['visible'] ?? list[i].visible;
+    }
+  }
 }

@@ -164,6 +164,13 @@ class DeviceCard extends StatelessWidget {
       }
     }
 
+    await applyChannelVisibilityPrefs(device.deviceId, {
+      'ai': aiCfg,
+      'ao': aoCfg,
+      'di': diCfg,
+      'do': doCfg,
+    });
+
     if (!context.mounted) return;
 
     Navigator.push(

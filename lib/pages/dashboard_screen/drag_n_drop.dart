@@ -72,6 +72,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   int outputsCount(LogicBlock b) =>
       connections.where((c) => c.from == b).length;
 
+  final GlobalKey _viewerKey = GlobalKey();
+
   // ---------------------------------------------------------------------
   // POST-SEND CONFIRMATION (NEW)
   //
@@ -307,16 +309,12 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         false,
       );
 
+      await _loadLogicFromBackend();
+
       mqttManager.subscribe(
         'device/${widget.device.deviceId}/logic',
         _onLogicMessage,
       );
-
-      // NEW: tenta carregar do backend primeiro — funciona mesmo com o
-      // device offline, e já traz x/y salvos (o device nunca soube guardar
-      // isso). Se não houver nada salvo (404) ou der erro de rede, cai
-      // no fluxo antigo (pedir pro device via MQTT).
-      await _loadLogicFromBackend();
 
       if (!_loadedFromBackend) {
         mqttManager.publish(
@@ -389,6 +387,11 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         _sendConfirmTimer?.cancel();
         final matched = _logicMatchesSent(json);
         _showSendConfirmationResult(matched: matched);
+        return;
+      }
+
+      if (_loadedFromBackend) {
+        print('Ignorando mensagem MQTT retida: já carregado do backend');
         return;
       }
 
@@ -1212,17 +1215,29 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
         // ===== DELETE =====
         if (event is RawKeyUpEvent &&
-            (event.logicalKey == LogicalKeyboardKey.delete ||
-                event.logicalKey == LogicalKeyboardKey.backspace)) {
+            (event.logicalKey == LogicalKeyboardKey.delete)) {
           if (selectedBlock != null) {
             _pushUndo();
 
             setState(() {
+              final deleted = selectedBlock!;
+
               connections.removeWhere(
-                (c) => c.from == selectedBlock || c.to == selectedBlock,
+                (c) => c.from == deleted || c.to == deleted,
               );
-              blocks.remove(selectedBlock);
-              _inputControllers.remove(selectedBlock!.id);
+
+              for (final b in blocks) {
+                for (int i = 0; i < b.inputs.length; i++) {
+                  if (b.inputs[i]?.fromBlock == deleted) {
+                    b.inputs[i] = null;
+                  }
+                }
+              }
+
+              blocks.remove(deleted);
+              if (blocks.isEmpty) _idCounter = 0;
+              _inputControllers.remove(deleted.id);
+              invalidBlocks.remove(deleted);
               selectedBlock = null;
             });
           }
@@ -1462,6 +1477,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
   Widget _canvas() {
     return Stack(
+      key: _viewerKey,
       children: [
         InteractiveViewer(
           transformationController: _transformCtrl,
@@ -1475,6 +1491,16 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           child: DragTarget<Map<String, dynamic>>(
             onAcceptWithDetails: (d) {
               setState(() {
+                final RenderBox viewerBox =
+                    _viewerKey.currentContext!.findRenderObject() as RenderBox;
+                final localPoint = viewerBox.globalToLocal(d.offset);
+
+                final Matrix4 inverse = Matrix4.inverted(_transformCtrl.value);
+                final canvasPoint = MatrixUtils.transformPoint(
+                  inverse,
+                  localPoint,
+                );
+
                 final newBlock = LogicBlock(
                   id: 'b${_idCounter++}',
                   title: d.data['title'],
@@ -1482,7 +1508,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                   type: d.data['type'],
                   ioType: d.data['ioType'],
                   ioChannel: d.data['channel'],
-                  position: d.offset - const Offset(260, kToolbarHeight + 10),
+                  position: canvasPoint - const Offset(85, 34),
                 );
 
                 // Porta NOT recém-criada já nasce com A=1 fixo, sobrando
@@ -1499,14 +1525,15 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
+                    _focusNode.requestFocus();
                     setState(() {
                       selectedBlock = null;
                       linkingFrom = null;
                     });
                   },
                   child: SizedBox(
-                    width: 15000,
-                    height: 15000,
+                    width: 25000,
+                    height: 25000,
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
@@ -1605,6 +1632,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         behavior: HitTestBehavior.translucent,
 
         onTap: () {
+          _focusNode.requestFocus();
           setState(() {
             invalidBlocks.remove(b);
 
@@ -1716,6 +1744,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           });
         },
         onDoubleTap: () {
+          _focusNode.requestFocus();
           setState(() {
             isLinkingMode = true;
             linkingFrom = b;
@@ -2040,9 +2069,19 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             onPressed: () {
               setState(() {
                 connections.removeWhere((c) => c.from == b || c.to == b);
+
+                for (final other in blocks) {
+                  for (int i = 0; i < other.inputs.length; i++) {
+                    if (other.inputs[i]?.fromBlock == b) {
+                      other.inputs[i] = null;
+                    }
+                  }
+                }
+
                 blocks.remove(b);
                 if (blocks.isEmpty) _idCounter = 0;
                 _inputControllers.remove(b.id);
+                invalidBlocks.remove(b);
                 selectedBlock = null;
               });
             },

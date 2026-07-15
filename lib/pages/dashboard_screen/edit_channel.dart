@@ -49,29 +49,19 @@ Future<void> showEditChannelDialog({
         if (mapMax != null) 'mapMax': mapMax,
       }, context);
 
-      final ok = res['success'] == true;
-      final msg = (res['message'] ?? '').toString();
+      final msg = (res['message'] ?? 'Canal atualizado com sucesso.')
+          .toString();
+      showMessage(context, msg, false);
 
-      showMessage(
-        context,
-        msg.isNotEmpty
-            ? msg
-            : (ok ? 'Atualizado com sucesso.' : 'Erro ao atualizar.'),
-        ok,
+      mqttManager.publish(
+        'device/$deviceId/control',
+        '{"type":"get_channels"}',
       );
-
-      // NOVO: avisa o ESP para recarregar os canais do backend
-      if (ok) {
-        mqttManager.publish(
-          'device/$deviceId/control',
-          '{"type":"get_channels"}',
-        );
-      }
     } catch (e) {
       showMessage(
         context,
         e.toString().replaceAll('Exception:', '').trim(),
-        true,
+        false,
       );
     }
   }

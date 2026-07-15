@@ -55,6 +55,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
   Telemetry? last;
   DateTime? lastRx;
+  DateTime? lastStatusRx;
 
   ViewMode viewMode = ViewMode.compact;
 
@@ -116,7 +117,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
   // (where the "Desconectado" status is visible) than by staring at a
   // frozen/stale screen indefinitely.
   static const int retryIntervalSec = 2;
-  static const int disconnectTimeoutSec = 20;
+  static const int disconnectTimeoutSec = 60;
 
   // Timestamp of the last retry attempt, tracked separately from
   // _watchdogStart so that sending a retry doesn't distort the timeout
@@ -381,6 +382,39 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
     }
   }
 
+  int _retryAttempts = 0;
+  static const int hardResyncEveryAttempts =
+      3; // ~6s de retry leve antes de forçar resync
+
+  // extraído de dentro de _subscribe() pra poder reusar no hard resync
+  void _onTelemetryMessage(String message) {
+    try {
+      final t = Telemetry.fromJson(message);
+      setState(() {
+        _loadingMQTT = false;
+        last = t;
+        lastRx = DateTime.now();
+        _watchdogStart = lastRx;
+        _lastRetryAt = null;
+        _retryAttempts = 0; // telemetria voltou, zera a escalada
+
+        for (int i = 0; i < 4; i++) {
+          aiHistory[i].add(SparkPoint(t.ai[i], DateTime.now()));
+          aoHistory[i].add(SparkPoint(t.ao[i], DateTime.now()));
+          diHistory[i].add(SparkPoint(t.di[i].toDouble(), DateTime.now()));
+          doHistory[i].add(SparkPoint(t.doo[i].toDouble(), DateTime.now()));
+
+          if (aiHistory[i].length > 300) aiHistory[i].removeAt(0);
+          if (aoHistory[i].length > 300) aoHistory[i].removeAt(0);
+          if (diHistory[i].length > 300) diHistory[i].removeAt(0);
+          if (doHistory[i].length > 300) doHistory[i].removeAt(0);
+        }
+        _checkAlarms();
+      });
+      _cancelLoadingTimeoutIfDone();
+    } catch (_) {}
+  }
+
   void _subscribe() {
     subscribed = true;
 
@@ -391,37 +425,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       mqttManager.publish(topicControl, jsonEncode({'telemetry': true}));
     });
 
-    mqttManager.subscribe(topicTelemetry, (message) {
-      try {
-        final t = Telemetry.fromJson(message);
-        print('telemetry: $message');
-        setState(() {
-          _loadingMQTT = false;
-          last = t;
-          lastRx = DateTime.now();
-          _watchdogStart = lastRx;
-
-          // Telemetry actually arrived, so the device is alive again.
-          // Reset the retry throttle here so the next stall starts a
-          // fresh retry cadence instead of inheriting an old timestamp.
-          _lastRetryAt = null;
-
-          for (int i = 0; i < 4; i++) {
-            aiHistory[i].add(SparkPoint(t.ai[i], DateTime.now()));
-            aoHistory[i].add(SparkPoint(t.ao[i], DateTime.now()));
-            diHistory[i].add(SparkPoint(t.di[i].toDouble(), DateTime.now()));
-            doHistory[i].add(SparkPoint(t.doo[i].toDouble(), DateTime.now()));
-
-            if (aiHistory[i].length > 300) aiHistory[i].removeAt(0);
-            if (aoHistory[i].length > 300) aoHistory[i].removeAt(0);
-            if (diHistory[i].length > 300) diHistory[i].removeAt(0);
-            if (doHistory[i].length > 300) doHistory[i].removeAt(0);
-          }
-          _checkAlarms();
-        });
-        _cancelLoadingTimeoutIfDone();
-      } catch (_) {}
-    });
+    mqttManager.subscribe(topicTelemetry, _onTelemetryMessage);
 
     // NEW: same status topic + payload shape CardsPage._handleStatusMessage
     // already parses ('uptime' field). This is what actually keeps the
@@ -447,10 +451,18 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
       if (!mounted) return;
       setState(() {
+        lastStatusRx = DateTime.now();
         if (uptime != null) _uptimeSec = uptime;
         if (fwVersion != null) _currentFwVersion = fwVersion; // NEW
       });
     } catch (_) {}
+  }
+
+  void _hardResyncTelemetry() {
+    mqttManager.publish(topicControl, jsonEncode({'telemetry': false}));
+    mqttManager.unsubscribe(topicTelemetry);
+    mqttManager.subscribe(topicTelemetry, _onTelemetryMessage);
+    mqttManager.publish(topicControl, jsonEncode({'telemetry': true}));
   }
 
   void _startWatchdog() {
@@ -462,30 +474,26 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
       final now = DateTime.now();
 
-      // If nothing has been received yet, use the start time.
-      final referenceTime = lastRx ?? _watchdogStart;
+      final aliveReference = _latestOf(lastRx, lastStatusRx) ?? _watchdogStart;
 
-      if (referenceTime == null) return;
+      if (aliveReference == null) return;
 
-      final diffSinceLastData = now.difference(referenceTime).inSeconds;
+      final diffSinceAlive = now.difference(aliveReference).inSeconds;
 
-      // Past the hard timeout: stop retrying and leave the screen. This
-      // is a deliberate give-up point — below it we keep nudging the
-      // device indefinitely, but a device that's still unreachable after
-      // disconnectTimeoutSec is treated as actually disconnected, and the
-      // operator is taken back instead of watching a stale dashboard.
-      if (diffSinceLastData >= disconnectTimeoutSec) {
+      if (diffSinceAlive >= disconnectTimeoutSec) {
         _leaveScreen('Conexão com o dispositivo perdida.');
         return;
       }
 
+      final referenceTime = lastRx ?? _watchdogStart;
+      final diffSinceLastData = referenceTime == null
+          ? 999999
+          : now.difference(referenceTime).inSeconds;
+
       if (diffSinceLastData < telemetryTimeoutSec) {
-        // Telemetry hasn't timed out — nothing to do.
         return;
       }
 
-      // We're past the timeout. Only fire a new retry if enough time has
-      // passed since the previous one.
       final canRetryNow =
           _lastRetryAt == null ||
           now.difference(_lastRetryAt!).inSeconds >= retryIntervalSec;
@@ -493,16 +501,21 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       if (!canRetryNow) return;
 
       _lastRetryAt = now;
-
-      // Refresh the UI so the "sem dados recentes" banner reflects the
-      // current stale state, and keep nudging the device while we're
-      // still under disconnectTimeoutSec: the connection can come back on
-      // its own (mqtt_manager already handles socket-level auto-reconnect)
-      // and when it does, this same command is what brings telemetry back
-      // without any manual step.
+      _retryAttempts++;
       setState(() {});
-      mqttManager.publish(topicControl, jsonEncode({'telemetry': true}));
+
+      if (_retryAttempts % hardResyncEveryAttempts == 0) {
+        _hardResyncTelemetry();
+      } else {
+        mqttManager.publish(topicControl, jsonEncode({'telemetry': true}));
+      }
     });
+  }
+
+  DateTime? _latestOf(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isAfter(b) ? a : b;
   }
 
   Future<void> _confirmSendCommand() async {
@@ -588,7 +601,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
     if (subscribed) {
       mqttManager.publish(topicControl, jsonEncode({'telemetry': false}));
       mqttManager.unsubscribe(topicTelemetry);
-      mqttManager.unsubscribe(topicStatus);
+      mqttManager.unsubscribe(topicStatus, _onStatusMessage);
       // Do not disconnect here because CardsPage shares the MQTT connection.
     }
     super.dispose();
@@ -1029,7 +1042,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                 IconButton(
                   tooltip: 'Programar dispositivo',
                   icon: const Icon(Icons.settings_applications_sharp),
-                  onPressed: () {
+                  onPressed: () async {
+                    await _loadChannelPrefs();
                     Navigator.push(
                       context,
                       MaterialPageRoute(

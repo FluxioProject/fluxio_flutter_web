@@ -11,7 +11,7 @@ class MqttManager {
   Timer? keepAliveTimer;
   int timerCounter = 0;
   MqttBrowserClient? client;
-  final Map<String, Function(String)> subscriptions = {};
+  final Map<String, List<Function(String)>> subscriptions = {};
   Function(String topic, String message)? globalCallback;
   String usermqtt = '';
   String passwordmqtt = '';
@@ -106,7 +106,7 @@ class MqttManager {
 
     try {
       client!.websocketProtocols = ['mqtt'];
-      client!.keepAlivePeriod = 120;
+      client!.keepAlivePeriod = 15;
 
       // Let the mqtt_client package handle reconnection at the socket level.
       // Without this, onDisconnected only flips a flag and nothing ever
@@ -207,13 +207,9 @@ class MqttManager {
   }
 
   void _listenToMessages(BuildContext context) async {
-    debugPrint('[MQTT] Starting to listen for incoming messages');
-
-    client!.updates?.listen((
-      List<MqttReceivedMessage<MqttMessage?>>? messages,
-    ) {
+    client!.updates?.listen((messages) {
       final MqttPublishMessage recMessage =
-          messages![0].payload as MqttPublishMessage;
+          messages[0].payload as MqttPublishMessage;
       final String topic = messages[0].topic;
       final String payload = MqttPublishPayload.bytesToStringAsString(
         recMessage.payload.message,
@@ -221,13 +217,15 @@ class MqttManager {
 
       debugPrint('[MQTT ⬇ RX] $topic: $payload');
 
-      if (subscriptions.containsKey(topic)) {
-        debugPrint('[MQTT] Dispatching to topic-specific handler for $topic');
-        subscriptions[topic]!(payload);
-      } else if (globalCallback != null) {
+      final listeners = subscriptions[topic];
+      if (listeners != null && listeners.isNotEmpty) {
         debugPrint(
-          '[MQTT] No topic-specific handler for $topic, dispatching to globalCallback',
+          '[MQTT] Dispatching to ${listeners.length} handler(s) for $topic',
         );
+        for (final listener in List.of(listeners)) {
+          listener(payload);
+        }
+      } else if (globalCallback != null) {
         globalCallback!(topic, payload);
       } else {
         debugPrint(
@@ -239,7 +237,9 @@ class MqttManager {
 
   void subscribe(String topic, Function(String) onMessage) {
     debugPrint('[MQTT] subscribe() called for $topic');
-    subscriptions[topic] = onMessage;
+
+    final listeners = subscriptions.putIfAbsent(topic, () => []);
+    listeners.add(onMessage);
 
     if (!isConnected()) {
       debugPrint(
@@ -250,14 +250,28 @@ class MqttManager {
 
     try {
       client!.subscribe(topic, MqttQos.atLeastOnce);
-      debugPrint('[MQTT] Subscribed to $topic');
+      debugPrint(
+        '[MQTT] Subscribed to $topic (${listeners.length} listener(s))',
+      );
     } catch (e) {
       debugPrint('[MQTT] EXCEPTION while subscribing to $topic: $e');
     }
   }
 
-  void unsubscribe(String topic) {
+  void unsubscribe(String topic, [Function(String)? specificListener]) {
     debugPrint('[MQTT] unsubscribe() called for $topic');
+
+    if (specificListener != null) {
+      subscriptions[topic]?.remove(specificListener);
+      // Só cancela no broker quando não sobra mais ninguém interessado.
+      if (subscriptions[topic]?.isNotEmpty ?? false) {
+        debugPrint(
+          '[MQTT] $topic still has other listeners, keeping broker subscription',
+        );
+        return;
+      }
+    }
+
     subscriptions.remove(topic);
 
     if (!isConnected()) {
