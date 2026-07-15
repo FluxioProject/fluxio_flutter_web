@@ -31,6 +31,33 @@ class VisualLogicBuilderPage extends StatefulWidget {
   State<VisualLogicBuilderPage> createState() => _VisualLogicBuilderPageState();
 }
 
+// ---------------------------------------------------------------------
+// UNDO/REDO SNAPSHOT (FIXED)
+//
+// Previously, undo/redo only cloned `blocks` (via `_cloneBlocks`), never
+// `connections`, and never each block's `inputs`. That meant:
+//   - The new cloned blocks always had EMPTY inputs (the old
+//     `_cloneBlocks` never copied `b.inputs`), so any link/constant value
+//     was lost on every undo/redo.
+//   - `connections` was never touched by undo/redo at all, so after an
+//     undo it kept pointing to whatever the CURRENT state was, but those
+//     `Connection` objects reference the OLD `LogicBlock` instances
+//     (since every undo/redo replaces `blocks` with freshly-created
+//     objects) — so the drawn lines and input/output counts went out of
+//     sync with the actual blocks on screen.
+//
+// `_EditorSnapshot` now captures both `blocks` AND `connections` in one
+// consistent snapshot, with `inputs` (including block-to-block links)
+// correctly re-pointed to the NEW cloned block instances via an
+// id -> block map (same two-pass approach already used in
+// `_deserializeLogic` for the exact same reason).
+// ---------------------------------------------------------------------
+class _EditorSnapshot {
+  final List<LogicBlock> blocks;
+  final List<Connection> connections;
+  _EditorSnapshot(this.blocks, this.connections);
+}
+
 class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   static const bg = Color(0xFF141414);
   static const panel = Color(0xFF1E1E1E);
@@ -57,8 +84,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   bool _logicReceived = false;
   LogicBlock? _clipboardBlock;
 
-  final List<List<LogicBlock>> _undoStack = [];
-  final List<List<LogicBlock>> _redoStack = [];
+  // FIXED: stacks now hold full snapshots (blocks + connections), not
+  // just a list of blocks. See `_EditorSnapshot` above for why.
+  final List<_EditorSnapshot> _undoStack = [];
+  final List<_EditorSnapshot> _redoStack = [];
 
   int _idCounter = 0;
   List<Connection> inputConnections(LogicBlock b) =>
@@ -1060,24 +1089,79 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     );
   }
 
-  List<LogicBlock> _cloneBlocks(List<LogicBlock> src) {
-    return src
+  // ---------------------------------------------------------------------
+  // FIXED: `_takeSnapshot` replaces the old `_cloneBlocks`.
+  //
+  // It rebuilds `blocks` in two passes (exactly like `_deserializeLogic`
+  // already does when loading from JSON):
+  //   1st pass: create a fresh `LogicBlock` for every current block and
+  //             remember old-id -> new-block in `idMap`.
+  //   2nd pass: copy each block's `inputs` (both fixed constants AND
+  //             block-to-block links), re-pointing any block link to the
+  //             corresponding NEW block instance via `idMap`.
+  //
+  // It also rebuilds `connections` against those same new instances, so
+  // a restored snapshot's `connections` list is always consistent with
+  // its `blocks` list — this is what the old code was missing entirely.
+  // ---------------------------------------------------------------------
+  _EditorSnapshot _takeSnapshot() {
+    final idMap = <String, LogicBlock>{};
+    final newBlocks = <LogicBlock>[];
+
+    for (final b in blocks) {
+      final nb = LogicBlock(
+        id: b.id,
+        title: b.title,
+        icon: b.icon,
+        type: b.type,
+        position: b.position,
+        ioType: b.ioType,
+        ioChannel: b.ioChannel,
+      );
+      idMap[b.id] = nb;
+      newBlocks.add(nb);
+    }
+
+    for (final b in blocks) {
+      final nb = idMap[b.id]!;
+      for (int i = 0; i < b.inputs.length; i++) {
+        final input = b.inputs[i];
+        if (input == null) continue;
+
+        if (input.type == InputSourceType.constant) {
+          nb.inputs[i] = InputSource.constant(input.constant ?? 0);
+        } else if (input.fromBlock != null) {
+          final fromId = input.fromBlock!.id;
+          final mappedFrom = idMap[fromId];
+          if (mappedFrom != null) {
+            nb.inputs[i] = InputSource.block(mappedFrom);
+          }
+        }
+      }
+    }
+
+    final newConnections = connections
         .map(
-          (b) => LogicBlock(
-            id: b.id,
-            title: b.title,
-            icon: b.icon,
-            type: b.type,
-            position: b.position,
-            ioType: b.ioType,
-            ioChannel: b.ioChannel,
-          ),
+          (c) => Connection(idMap[c.from.id]!, idMap[c.to.id]!, c.inputIndex),
         )
         .toList();
+
+    return _EditorSnapshot(newBlocks, newConnections);
+  }
+
+  // FIXED: restores both `blocks` and `connections` from a snapshot,
+  // instead of only `blocks` like the previous undo/redo did.
+  void _restoreSnapshot(_EditorSnapshot snap) {
+    blocks
+      ..clear()
+      ..addAll(snap.blocks);
+    connections
+      ..clear()
+      ..addAll(snap.connections);
   }
 
   void _pushUndo() {
-    _undoStack.add(_cloneBlocks(blocks));
+    _undoStack.add(_takeSnapshot());
     _redoStack.clear();
   }
 
@@ -1175,27 +1259,25 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             return;
           }
 
-          // ===== UNDO =====
+          // ===== UNDO ===== (FIXED: uses _takeSnapshot/_restoreSnapshot
+          // so connections and inputs are restored consistently, not
+          // just block metadata like before.)
           if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyZ) {
             if (_undoStack.isNotEmpty) {
-              _redoStack.add(_cloneBlocks(blocks));
+              _redoStack.add(_takeSnapshot());
               setState(() {
-                blocks
-                  ..clear()
-                  ..addAll(_undoStack.removeLast());
+                _restoreSnapshot(_undoStack.removeLast());
               });
             }
             return;
           }
 
-          // ===== REDO =====
+          // ===== REDO ===== (FIXED: same snapshot-based approach as undo)
           if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyY) {
             if (_redoStack.isNotEmpty) {
-              _undoStack.add(_cloneBlocks(blocks));
+              _undoStack.add(_takeSnapshot());
               setState(() {
-                blocks
-                  ..clear()
-                  ..addAll(_redoStack.removeLast());
+                _restoreSnapshot(_redoStack.removeLast());
               });
             }
             return;
@@ -1525,6 +1607,12 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
+                    // NEW: restores keyboard focus to the editor's
+                    // RawKeyboardListener. Any TextField clicked before
+                    // this (e.g. a fixed-value field in the properties
+                    // panel) steals focus, which silently breaks
+                    // Delete/Ctrl+C/Ctrl+Z/Ctrl+Y until focus is
+                    // reclaimed by a tap like this one.
                     _focusNode.requestFocus();
                     setState(() {
                       selectedBlock = null;
@@ -1632,6 +1720,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         behavior: HitTestBehavior.translucent,
 
         onTap: () {
+          // NEW: same focus-reclaiming fix as the canvas background tap
+          // above — makes sure Delete/Ctrl+C/Ctrl+Z/Ctrl+Y keep working
+          // after interacting with a TextField in the properties panel.
           _focusNode.requestFocus();
           setState(() {
             invalidBlocks.remove(b);
@@ -1744,6 +1835,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           });
         },
         onDoubleTap: () {
+          // NEW: same focus-reclaiming fix, so entering link mode also
+          // guarantees keyboard shortcuts keep working afterwards.
           _focusNode.requestFocus();
           setState(() {
             isLinkingMode = true;
