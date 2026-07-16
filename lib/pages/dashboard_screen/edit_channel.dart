@@ -29,27 +29,45 @@ Future<void> showEditChannelDialog({
     double? max,
     double? mapMin,
     double? mapMax,
+    int? trigger,
     bool? notifyMobile,
     bool? notifyEmail,
     bool? notifySms,
     String? channelName,
   }) async {
     try {
-      final res = await Session().patchObj('devices/update-channel', {
+      final isAnalog = channelType == 'ai' || channelType == 'ao';
+
+      final body = <String, dynamic>{
         'deviceId': deviceId,
         'type': channelType,
         'index': index,
-        if (min != null) 'min': min,
-        if (max != null) 'max': max,
+        if (channelName != null) 'channelName': channelName,
         if (notifyMobile != null) 'notifyMobile': notifyMobile,
         if (notifyEmail != null) 'notifyEmail': notifyEmail,
         if (notifySms != null) 'notifySms': notifySms,
-        if (channelName != null) 'channelName': channelName,
-        if (mapMin != null) 'mapMin': mapMin,
-        if (mapMax != null) 'mapMax': mapMax,
-      }, context);
+      };
 
-      final msg = (res['message'] ?? 'Canal atualizado com sucesso.')
+      // Analog and digital channels have mutually exclusive fields:
+      // min/max/mapMin/mapMax only make sense for analog channels, and
+      // trigger only makes sense for digital ones. Keeping them separate
+      // avoids sending meaningless fields to the backend.
+      if (isAnalog) {
+        if (min != null) body['min'] = min;
+        if (max != null) body['max'] = max;
+        if (mapMin != null) body['mapMin'] = mapMin;
+        if (mapMax != null) body['mapMax'] = mapMax;
+      } else {
+        if (trigger != null) body['trigger'] = trigger;
+      }
+
+      final res = await Session().patchObj(
+        'devices/update-channel',
+        body,
+        context,
+      );
+
+      final msg = (res['message'] ?? 'Channel updated successfully.')
           .toString();
       showMessage(context, msg, false);
 
@@ -103,6 +121,7 @@ Future<void> showEditChannelDialog({
 
   final oldMin = channel.min;
   final oldMax = channel.max;
+  final oldTrigger = channel.trigger;
   final oldMobileNotify = channel.notifyMobile;
   final oldChannelName = channel.name;
   final oldNotifyEmail = channel.notifyEmail;
@@ -112,8 +131,7 @@ Future<void> showEditChannelDialog({
   bool localNotifyMobile = channel.notifyMobile;
   bool localNotifyEmail = channel.notifyEmail;
   bool localNotifySms = channel.notifySms;
-  localNotifySms = channel.notifySms;
-  double localDigitalTrigger = channel.min;
+  int localDigitalTrigger = channel.trigger;
 
   await showDialog(
     context: context,
@@ -333,46 +351,61 @@ Future<void> showEditChannelDialog({
                     ? channel.name
                     : nameCtrl.text
                 ..unit = unitCtrl.text.trim()
-                ..min = double.tryParse(minCtrl.text) ?? channel.min
-                ..max = double.tryParse(maxCtrl.text) ?? channel.max
                 ..decimals = int.tryParse(decCtrl.text) ?? channel.decimals
                 ..notifyMobile = localNotifyMobile
                 ..notifyEmail = localNotifyEmail
-                ..mapMin = double.tryParse(minMapCtrl.text) ?? channel.mapMin
-                ..mapMax = double.tryParse(maxMapCtrl.text) ?? channel.mapMax
                 ..notifySms = localNotifySms;
 
-              if (!channel.analog) {
-                channel.min = localDigitalTrigger;
+              if (channel.analog) {
+                channel
+                  ..min = double.tryParse(minCtrl.text) ?? channel.min
+                  ..max = double.tryParse(maxCtrl.text) ?? channel.max
+                  ..mapMin = double.tryParse(minMapCtrl.text) ?? channel.mapMin
+                  ..mapMax = double.tryParse(maxMapCtrl.text) ?? channel.mapMax;
+              } else {
+                channel.trigger = localDigitalTrigger;
               }
 
               onSave();
 
               final newMin = channel.analog
                   ? double.tryParse(minCtrl.text)
-                  : localDigitalTrigger;
-              final newMax = double.tryParse(maxCtrl.text);
+                  : null;
+              final newMax = channel.analog
+                  ? double.tryParse(maxCtrl.text)
+                  : null;
+              final newMapMin = channel.analog
+                  ? double.tryParse(minMapCtrl.text)
+                  : null;
+              final newMapMax = channel.analog
+                  ? double.tryParse(maxMapCtrl.text)
+                  : null;
+              final newTrigger = channel.analog ? null : localDigitalTrigger;
 
-              final minChanged = newMin != null && newMin != oldMin;
-
-              final maxChanged = newMax != null && newMax != oldMax;
+              final minChanged =
+                  channel.analog && newMin != null && newMin != oldMin;
+              final maxChanged =
+                  channel.analog && newMax != null && newMax != oldMax;
+              final mapMinChanged =
+                  channel.analog && newMapMin != null && newMapMin != oldMinMap;
+              final mapMaxChanged =
+                  channel.analog && newMapMax != null && newMapMax != oldMaxMap;
+              final triggerChanged =
+                  !channel.analog && newTrigger != null && newTrigger != oldTrigger;
               final mobileNotifyChanged = localNotifyMobile != oldMobileNotify;
               final nameChanged = channel.name != oldChannelName;
               final emailNotifyChanged = localNotifyEmail != oldNotifyEmail;
               final smsNotifyChanged = localNotifySms != oldNotifySms;
-              final mapMinChanged =
-                  (double.tryParse(minMapCtrl.text) ?? oldMinMap) != oldMinMap;
-              final mapMaxChanged =
-                  (double.tryParse(maxMapCtrl.text) ?? oldMaxMap) != oldMaxMap;
 
               if (minChanged ||
                   maxChanged ||
+                  mapMinChanged ||
+                  mapMaxChanged ||
+                  triggerChanged ||
                   mobileNotifyChanged ||
                   nameChanged ||
                   emailNotifyChanged ||
-                  smsNotifyChanged ||
-                  mapMinChanged ||
-                  mapMaxChanged) {
+                  smsNotifyChanged) {
                 _updateChannelLimits(
                   deviceId: deviceId,
                   channelName: channel.name,
@@ -380,8 +413,9 @@ Future<void> showEditChannelDialog({
                   index: index,
                   min: newMin,
                   max: newMax,
-                  mapMin: double.tryParse(minMapCtrl.text),
-                  mapMax: double.tryParse(maxMapCtrl.text),
+                  mapMin: newMapMin,
+                  mapMax: newMapMax,
+                  trigger: newTrigger,
                   notifyMobile: localNotifyMobile,
                   notifyEmail: localNotifyEmail,
                   notifySms: localNotifySms,

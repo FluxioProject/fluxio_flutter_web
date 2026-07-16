@@ -16,6 +16,11 @@ class ChannelConfig {
   bool notifyEmail;
   bool notifySms;
 
+  // Dedicated field for digital channels (DI/DO): 0 = fires on OFF,
+  // 1 = fires on ON. Kept separate from min/max, which are meaningless
+  // for digital channels and only apply to analog ones.
+  int trigger;
+
   ChannelConfig({
     required this.name,
     this.unit = '',
@@ -29,6 +34,7 @@ class ChannelConfig {
     this.notifySms = false,
     this.mapMin = 0,
     this.mapMax = 100,
+    this.trigger = 1,
   });
 }
 
