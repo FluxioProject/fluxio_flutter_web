@@ -24,6 +24,17 @@ class LogicBlock {
     required this.position,
     this.ioType,
     this.ioChannel,
+    // PID-only tuning parameters. Left at their defaults for every other
+    // block type. These live directly on the block (not as an
+    // InputSource/signal) because they are static controller tuning
+    // values, not live signals — the firmware reads them once from a
+    // dedicated 'pid' JSON object, separate from the generic 'in' array
+    // (see _serializeBlock in VisualLogicBuilderPage).
+    this.pidKp = 1.0,
+    this.pidKi = 0.0,
+    this.pidKd = 0.0,
+    this.pidOutMin = 0.0,
+    this.pidOutMax = 100.0,
   }) {
     inputs = List.generate(maxInputs, (_) => null);
   }
@@ -36,6 +47,14 @@ class LogicBlock {
   final int? ioType; // IOType.index
   final int? ioChannel; // physical channel
 
+  // PID tuning parameters — see comment above. Mutable so the properties
+  // panel can edit them in place without rebuilding the block.
+  double pidKp;
+  double pidKi;
+  double pidKd;
+  double pidOutMin;
+  double pidOutMax;
+
   late List<InputSource?> inputs;
 
   int get maxInputs {
@@ -45,6 +64,12 @@ class LogicBlock {
         return 2;
       case BlockType.timer:
         return 2;
+      // PID has 3 signal inputs: enable (0/1), process variable (PV),
+      // and setpoint. Gains (Kp/Ki/Kd) and the output clamp
+      // (outMin/outMax) are configured separately above, not through
+      // inputs[], since they are tuning parameters rather than signals.
+      case BlockType.pid:
+        return 3;
       default:
         return 1;
     }

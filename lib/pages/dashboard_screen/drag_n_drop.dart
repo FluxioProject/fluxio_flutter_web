@@ -130,57 +130,55 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   final Session _session = Session();
 
   // ---------------------------------------------------------------------
-  // LÓGICA BOOLEANA (AND / OR / NOT) — SEM MUDANÇA DE FIRMWARE/PROTOCOLO
+  // BOOLEAN LOGIC GATES (AND / OR / NOT) — NO FIRMWARE/PROTOCOL CHANGE
   //
-  // O firmware só entende blocos "math" com op 0=soma, 1=sub, 2=mul, 3=div
-  // (ver logic.cpp / executeLogic / BLOCK_MATH). Não existe op de AND/OR/NOT
-  // no logic.cpp e não vamos adicionar um — em vez disso, os blocos
-  // "E (AND)", "OU (OR)" e "NÃO (NOT)" abaixo são, para o firmware,
-  // blocos "math" completamente normais:
+  // The firmware only understands "math" blocks with op 0=add, 1=sub,
+  // 2=mul, 3=div (see logic.cpp / executeLogic / BLOCK_MATH). There is
+  // no AND/OR/NOT op in logic.cpp and we're not adding one — instead,
+  // the "E (AND)", "OU (OR)" and "NÃO (NOT)" blocks below are, as far as
+  // the firmware is concerned, completely ordinary "math" blocks:
   //
-  //   E (AND)  -> multiplicação (a * b). Para entradas 0/1: 1*1=1, 1*0=0,
-  //               0*0=0 -> comporta-se exatamente como um AND.
-  //   OU (OR)  -> soma (a + b). Para entradas 0/1: 0+0=0, 1+0=1, 1+1=2.
-  //               O firmware sempre trata qualquer valor > 0.5 como
-  //               "verdadeiro" (DO, gatilho de Timer, Compare, etc. -
-  //               ver `in > 0.5f` e `(b.lastValue > 0.5f) ? 1 : 0` em
-  //               logic.cpp), então o resultado 2 ainda é lido como
-  //               "ligado". Isso funciona perfeitamente quando a saída do
-  //               OR alimenta um DO, um Timer ou um Compare.
-  //               ATENÇÃO: se você ligar a saída de um OR diretamente em
-  //               uma saída analógica (AO/PWM), 2 será interpretado como
-  //               2%, não 100% — para AO, prefira alimentar o OR em um
-  //               Compare (> 0.5) antes de ir para o AO.
-  //   NÃO (NOT) -> subtração fixa (1 - b). A entrada "A" desse bloco é
-  //               travada em 1 pela própria interface (não aparece campo
-  //               editável pra ela); só a entrada "B" é ligável. Resultado
-  //               1-0=1 (nega falso) e 1-1=0 (nega verdadeiro).
+  //   AND -> multiplication (a * b). For 0/1 inputs: 1*1=1, 1*0=0,
+  //          0*0=0 -> behaves exactly like an AND gate.
+  //   OR  -> addition (a + b). For 0/1 inputs: 0+0=0, 1+0=1, 1+1=2.
+  //          The firmware always treats any value > 0.5 as "true" (DO,
+  //          Timer trigger, Compare, etc — see `in > 0.5f` and
+  //          `(b.lastValue > 0.5f) ? 1 : 0` in logic.cpp), so a result
+  //          of 2 is still read as "on". This works perfectly when the
+  //          OR's output feeds a DO, a Timer, or a Compare block.
+  //          WARNING: if you feed an OR's output directly into an
+  //          analog output (AO/PWM), 2 will be read as 2%, not 100% —
+  //          for AO, route the OR through a Compare (> 0.5) first.
+  //   NOT -> fixed subtraction (1 - b). This block's "A" input is
+  //          locked to 1 by the UI itself (no editable field is shown
+  //          for it); only the "B" input is linkable. Result: 1-0=1
+  //          (negates false) and 1-1=0 (negates true).
   //
-  // Como o protocolo (`in`, `op`, `t`) não muda em nada, o ESP32 não
-  // precisa de nenhuma alteração: ele já sabe fazer soma/subtração/
-  // multiplicação. Só o app Flutter precisa saber "desenhar" esses
-  // blocos de math com nomes/ícones amigáveis de porta lógica.
+  // Since the protocol (`in`, `op`, `t`) doesn't change at all, the
+  // ESP32 needs no changes: it already knows how to add/subtract/
+  // multiply. Only the Flutter app needs to know how to "draw" these
+  // math blocks with friendly logic-gate names/icons.
   //
-  // Para dar nome bonito ao bloco quando ele volta do dispositivo (via
-  // "logic_get"), gravamos um campo extra 'lg' (logic-gate) no JSON:
-  // 0 = bloco math normal, 1 = AND, 2 = OR, 3 = NOT. Esse campo é
-  // simplesmente ignorado pelo ArduinoJson no firmware (campos
-  // desconhecidos não quebram o parser) e SÓ é usado pelo próprio app
-  // para reconstruir o título correto ao reler o programa salvo.
+  // To give the block a nice name when it comes back from the device
+  // (via "logic_get"), we store an extra 'lg' (logic-gate) field in the
+  // JSON: 0 = normal math block, 1 = AND, 2 = OR, 3 = NOT. This field is
+  // simply ignored by ArduinoJson on the firmware (unknown fields don't
+  // break the parser) and is ONLY used by the app itself to rebuild the
+  // correct title when re-reading a saved program.
   //
-  // ATENÇÃO / PREMISSA A VALIDAR: isso só sobrevive à ida-e-volta se o
-  // firmware realmente republica, em "logic_get", a MESMA string JSON
-  // recebida (isso é sugerido pela variável `logicJsonCache` em
-  // logic.cpp, mas o handler MQTT que trata `type: "logic"` não estava
-  // nos arquivos que você me mandou). Se o firmware reconstrói o JSON
-  // a partir dos campos internos (id/t/op/in/io) e descarta campos
-  // desconhecidos, o 'lg' se perde depois de um reload — a lógica
-  // continua funcionando 100% certo (o valor calculado não muda em
-  // nada), só o rótulo do bloco no editor volta a aparecer como
-  // "Multiplicação"/"Soma"/"Subtração" genérico em vez de "E (AND)" /
-  // "OU (OR)" / "NÃO (NOT)". É só estética, não afeta o funcionamento.
-  // Pelo mesmo motivo, a comparação de confirmação (_logicMatchesSent)
-  // ignora deliberadamente o campo 'lg'.
+  // CAVEAT / ASSUMPTION TO VALIDATE: this only survives a round trip if
+  // the firmware really republishes, on "logic_get", the SAME JSON
+  // string it received (suggested by the `logicJsonCache` variable in
+  // logic.cpp, but the MQTT handler that deals with `type: "logic"`
+  // wasn't in the files you sent me). If the firmware rebuilds the JSON
+  // from its internal fields (id/t/op/in/io) and drops unknown fields,
+  // 'lg' is lost after a reload — the logic keeps working 100% correctly
+  // (the computed value doesn't change at all), only the block's label
+  // in the editor goes back to showing the generic
+  // "Multiplicação"/"Soma"/"Subtração" instead of "E (AND)" /
+  // "OU (OR)" / "NÃO (NOT)". It's purely cosmetic, doesn't affect
+  // behavior. For the same reason, the confirmation comparison
+  // (_logicMatchesSent) deliberately ignores the 'lg' field.
   // ---------------------------------------------------------------------
 
   static const String kAndTitle = 'E (AND)';
@@ -210,7 +208,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         return MathOp.mul.index;
       case 'Divisão':
         return MathOp.div.index;
-      // Portas lógicas: reaproveitam os mesmos ops de math do firmware.
+      // Logic gates: reuse the firmware's existing math ops.
       case kAndTitle:
         return MathOp.mul.index; // AND = a * b
       case kOrTitle:
@@ -262,10 +260,11 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       'id': int.parse(b.id.substring(1)),
       't': b.type.index,
       'in': inputs,
-      // NEW: posição no canvas. O firmware ignora campos desconhecidos
-      // (mesma lógica do 'lg'), então é seguro mandar isso também no
-      // payload MQTT — mas o motivo real de existir é o backend, pra
-      // restaurar o layout exato ao reabrir o editor sem o device online.
+      // NEW: canvas position. The firmware ignores unknown fields (same
+      // as 'lg' above), so it's safe to send this in the MQTT payload
+      // too — but the real reason it exists is the backend, to restore
+      // the exact layout when reopening the editor without the device
+      // online.
       'x': b.position.dx,
       'y': b.position.dy,
     };
@@ -276,10 +275,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
     if (b.type == BlockType.math) {
       base['op'] = _mathOpFromTitle(b.title);
-      // Campo extra, só para o app — o firmware ignora. Guarda se este
-      // bloco math é na verdade uma porta AND/OR/NOT "disfarçada", para
-      // conseguirmos redesenhar o nome certo se o programa for relido
-      // do dispositivo (ver nota grande acima).
+      // Extra field, app-only — the firmware ignores it. Records whether
+      // this math block is actually a disguised AND/OR/NOT gate, so we
+      // can redraw the correct name if the program is re-read back from
+      // the device (see the big comment above).
       final lg = _logicGateFromTitle(b.title);
       if (lg != 0) base['lg'] = lg;
     } else if (b.type == BlockType.compare) {
@@ -293,12 +292,30 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       base['time'] = b.inputs[1]?.constant ?? 0;
     }
 
+    if (b.type == BlockType.pid) {
+      // Dedicated config object for the (upcoming) firmware PID block —
+      // kept separate from 'in', which only carries the live enable/PV/
+      // setpoint signals. Gains and the output clamp are static tuning
+      // parameters the firmware will read once at load time, the same
+      // way it reads 'op' for math/compare blocks. NOTE: the firmware
+      // doesn't support BLOCK_PID yet — sending this is safe (no crash,
+      // see BLOCK_PID follow-up), but it won't actually control anything
+      // until that's implemented.
+      base['pid'] = {
+        'kp': b.pidKp,
+        'ki': b.pidKi,
+        'kd': b.pidKd,
+        'outMin': b.pidOutMin,
+        'outMax': b.pidOutMax,
+      };
+    }
+
     return base;
   }
 
   Map<String, dynamic> _buildLogicJson() {
     return {
-      'v': 1, // versão do schema
+      'v': 1, // schema version
       'blocks': blocks.map(_serializeBlock).toList(),
     };
   }
@@ -310,18 +327,19 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         context,
       );
 
-      // getObj decodifica JSON quando dá, senão devolve a string crua do
-      // corpo (ex.: a mensagem 404 "Nenhuma lógica salva..." que o backend
-      // manda como texto puro). Só tratamos como sucesso se veio um Map
-      // com os campos esperados.
+      // getObj decodes JSON when it can, otherwise returns the raw body
+      // string (e.g. the 404 "Nenhuma lógica salva..." message the
+      // backend sends as plain text). We only treat this as success if
+      // we got a Map with the expected fields.
       if (resp is Map<String, dynamic> && resp.containsKey('blocks')) {
         _deserializeLogic(resp);
         _loadedFromBackend = true;
       }
-      // Se não: nenhuma lógica salva ainda pra esse device, ou erro —
-      // segue o fluxo normal (pedir pro device via MQTT).
+      // Otherwise: no logic saved yet for this device, or an error —
+      // fall through to the normal flow (ask the device over MQTT).
     } catch (e) {
-      // Sem conexão com o backend — não é fatal, só cai no fluxo MQTT normal.
+      // No connection to the backend — not fatal, just falls through to
+      // the normal MQTT flow.
       print('Erro ao carregar lógica do backend: $e');
     }
   }
@@ -352,7 +370,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         );
         _startLogicTimeout();
       } else {
-        _logicReceived = true; // evita o aviso de "nenhuma lógica encontrada"
+        _logicReceived = true; // avoids the "no logic found" warning
       }
     });
   }
@@ -462,7 +480,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
     const double spacingY = 90;
 
-    // 1 cria blocos
+    // pass 1: create blocks
     for (final b in list) {
       print(
         'ID=${b['id']} TYPE=${b['t']} ENUM=${BlockType.values[b['t']]} IO=${b['io']}',
@@ -477,26 +495,31 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       if (b.containsKey('x') && b.containsKey('y')) {
         position = Offset((b['x']).toDouble(), (b['y']).toDouble());
       } else {
-        // entrada
+        // input
         if (type == BlockType.io &&
             io != null &&
             (io[0] == IOType.ai.index || io[0] == IOType.di.index)) {
           position = Offset(xInput, yInput);
           yInput += spacingY;
 
-          // saída
+          // output
         } else if (type == BlockType.io &&
             io != null &&
             (io[0] == IOType.ao.index || io[0] == IOType.doo.index)) {
           position = Offset(xOutput, yOutput);
           yOutput += spacingY;
 
-          // processamento (timer/math/compare)
+          // processing (timer/math/compare/pid)
         } else {
           position = Offset(xProcess, yProcess);
           yProcess += spacingY;
         }
       }
+
+      // PID tuning parameters, if present. Read defensively since the
+      // firmware doesn't echo this back yet and older saved programs
+      // won't have it at all.
+      final Map? pidJson = b['pid'];
 
       final block = LogicBlock(
         id: 'b$id',
@@ -506,9 +529,14 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         ioType: io != null ? io[0] : null,
         ioChannel: io != null ? io[1] : null,
         position: position,
+        pidKp: (pidJson?['kp'] as num?)?.toDouble() ?? 1.0,
+        pidKi: (pidJson?['ki'] as num?)?.toDouble() ?? 0.0,
+        pidKd: (pidJson?['kd'] as num?)?.toDouble() ?? 0.0,
+        pidOutMin: (pidJson?['outMin'] as num?)?.toDouble() ?? 0.0,
+        pidOutMax: (pidJson?['outMax'] as num?)?.toDouble() ?? 100.0,
       );
 
-      // TIMER precisa manter o tempo recebido
+      // TIMER needs to keep the received time value
       if (type == BlockType.timer) {
         final inputs = b['in'] as List?;
 
@@ -529,7 +557,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       _idCounter = _idCounter <= id ? id + 1 : _idCounter;
     }
 
-    // 2 conecta entradas
+    // pass 2: connect inputs
     for (final b in list) {
       final to = map[b['id']]!;
       final inputs = b['in'] as List;
@@ -569,11 +597,11 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     final t = b['t'];
 
     if (t == BlockType.math.index) {
-      // Se o campo extra 'lg' estiver presente (ver _serializeBlock),
-      // reconstrói o nome de porta lógica em vez do nome genérico de
-      // math. Se não estiver (ex.: firmware não ecoou o campo de volta),
-      // cai no nome genérico — o cálculo continua correto de qualquer
-      // forma, só muda o rótulo mostrado no bloco.
+      // If the extra 'lg' field is present (see _serializeBlock),
+      // rebuild the logic-gate name instead of the generic math name.
+      // If it's absent (e.g. the firmware didn't echo the field back),
+      // fall back to the generic name — the computed value is still
+      // correct either way, only the displayed label changes.
       final lg = b['lg'];
       if (lg == 1) return kAndTitle;
       if (lg == 2) return kOrTitle;
@@ -593,6 +621,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         'Maior ou igual',
         'Menor ou igual',
       ][b['op']];
+    }
+
+    if (t == BlockType.pid.index) {
+      return 'PID';
     }
 
     if (t == BlockType.io.index) {
@@ -619,6 +651,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     if (b['t'] == BlockType.compare.index) return Icons.compare_arrows;
     if (b['t'] == BlockType.timer.index) {
       return Icons.timer;
+    }
+    if (b['t'] == BlockType.pid.index) {
+      return Icons.tune;
     }
 
     if (b['t'] == BlockType.io.index) {
@@ -703,9 +738,30 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   bool isTimerTime(LogicBlock b, int index) =>
       b.type == BlockType.timer && index == 1;
 
-  // Porta NOT: A é sempre um valor fixo (1), travado pela própria UI —
-  // só existe uma entrada "de verdade" (B), que é a que pode ser ligada.
+  // NOT gate: A is always a fixed value (1), locked by the UI itself —
+  // only one "real" input exists (B), which is the one that can be linked.
   bool isNotGate(LogicBlock b) => b.title == kNotTitle;
+
+  // ---------------------------------------------------------------------
+  // PID block. It uses a fixed 3-slot layout:
+  //   input[0] = enable (digital 0/1) — link or typed 0/1
+  //   input[1] = PV (process variable) — usually linked to an AI block
+  //   input[2] = setpoint — usually a typed constant, but can be linked
+  //              too (e.g. a dynamic setpoint coming from another AI)
+  // Kp/Ki/Kd/outMin/outMax are NOT part of inputs[] — they're static
+  // tuning parameters stored directly on the block (see blocks.dart) and
+  // edited via _pidGainsEditor below.
+  //
+  // NOTE: the firmware does not implement BLOCK_PID yet. Sending this
+  // block over MQTT is safe (logic.cpp's executeLogic() switch has no
+  // default case, so an unknown block type just never executes and its
+  // lastValue stays 0 — no crash, no dangerous output), but the block
+  // won't actually control anything until BLOCK_PID is added to logic.cpp.
+  // ---------------------------------------------------------------------
+  bool isPidBlock(LogicBlock b) => b.type == BlockType.pid;
+  bool isPidEnable(LogicBlock b, int index) => isPidBlock(b) && index == 0;
+  bool isPidPV(LogicBlock b, int index) => isPidBlock(b) && index == 1;
+  bool isPidSetpoint(LogicBlock b, int index) => isPidBlock(b) && index == 2;
 
   // Short label used both in the "linked inputs" list and as a base for
   // the editable-field label below.
@@ -713,19 +769,22 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     if (isAnalogOutput(b)) return 'PWM';
     if (isTimerTrigger(b, index)) return 'Gatilho';
     if (isTimerTime(b, index)) return 'Tempo';
+    if (isPidEnable(b, index)) return 'Habilita';
+    if (isPidPV(b, index)) return 'PV';
+    if (isPidSetpoint(b, index)) return 'SP';
     if (isNotGate(b)) return index == 0 ? 'A (fixo)' : 'Entrada';
     if (b.maxInputs > 1) return index == 0 ? 'A' : 'B';
     return 'IN';
   }
 
   // ---------------------------------------------------------------------
-  // NEW (UX only, no protocol/firmware change):
+  // (UX only, no protocol/firmware change):
   // Builds a short summary string of any fixed ("constant") values
   // currently configured on a block, so it can be shown directly on the
   // block's card in the canvas — e.g. "A=5 · B=3", "PWM: 50%",
-  // "Gatilho=1 · Tempo=1000ms". Returns null when there is nothing fixed
-  // to show (block has no constants, or is an input IO block which never
-  // has inputs at all).
+  // "Gatilho=1 · Tempo=1000ms", "Habilita=1 · SP=50". Returns null when
+  // there is nothing fixed to show (block has no constants, or is an
+  // input IO block which never has inputs at all).
   // ---------------------------------------------------------------------
   String? _constantSummary(LogicBlock b) {
     if (isInputIO(b)) return null;
@@ -733,8 +792,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     final parts = <String>[];
 
     for (int i = 0; i < b.inputs.length; i++) {
-      // Porta NOT: o "A=1" é sempre fixo e não é interessante pro usuário
-      // ver no card (o título "NÃO (NOT)" já deixa isso implícito).
+      // NOT gate: the "A=1" is always fixed and not interesting for the
+      // user to see on the card (the "NÃO (NOT)" title already implies it).
       if (isNotGate(b) && i == 0) continue;
 
       final input = b.inputs[i];
@@ -761,11 +820,15 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   }
 
   // ---------------------------------------------------------------------
-  // NEW: structural comparison between what we just sent and what the
-  // device echoed back via 'logic_get'. Compares by block id (order
-  // doesn't matter) and only the fields that affect actual behavior —
-  // 'lg' is deliberately excluded since it's a cosmetic, app-only field
-  // (see the big AND/OR/NOT comment above) the firmware may not echo.
+  // Structural comparison between what we just sent and what the device
+  // echoed back via 'logic_get'. Compares by block id (order doesn't
+  // matter) and only the fields that affect actual behavior — 'lg' is
+  // deliberately excluded since it's a cosmetic, app-only field (see the
+  // big AND/OR/NOT comment above) the firmware may not echo. 'pid' is
+  // also not compared here: since the firmware doesn't parse/echo it
+  // yet, including it would make every PID-containing program report as
+  // "doesn't match" even once BLOCK_PID exists, unless the firmware's
+  // logic_get echoes the exact same JSON it received.
   // ---------------------------------------------------------------------
   bool _logicMatchesSent(Map<String, dynamic> received) {
     if (_lastSentBlocksJson == null) return false;
@@ -806,8 +869,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     return true;
   }
 
-  // NEW: kicks off the post-send confirmation round trip described in
-  // the big comment above _awaitingSendConfirmation.
+  // Kicks off the post-send confirmation round trip described in the big
+  // comment above _awaitingSendConfirmation.
   void _startSendConfirmation(List<dynamic> sentBlocksJson) {
     _lastSentBlocksJson = sentBlocksJson;
     _awaitingSendConfirmation = true;
@@ -825,7 +888,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     );
   }
 
-  // NEW: reports the outcome of the post-send confirmation.
+  // Reports the outcome of the post-send confirmation.
   void _showSendConfirmationResult({
     required bool matched,
     bool timedOut = false,
@@ -947,10 +1010,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       final outputs = outputConnections(b);
       bool hasError = false;
 
-      // BLOCO DE ENTRADA (AI / DI)
+      // INPUT BLOCK (AI / DI)
       if (isInputIO(b)) {
-        // não exige entradas
-        // exige ao menos uma saída
+        // no inputs required
+        // requires at least one output
         if (outputs.isEmpty) {
           errors.add(
             'Entrada "${b.title}" (${b.id}) não está ligada a nenhum bloco',
@@ -958,18 +1021,17 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           hasError = true;
         }
       }
-      // BLOCO DE SAÍDA (AO / DO)
+      // OUTPUT BLOCK (AO / DO)
       else if (isOutputIO(b)) {
-        // exige uma entrada (agora pode ser uma ligação OU um valor fixo,
-        // ver _inputEditor / _blockProperties para blocos AO)
+        // requires one input (can now be a link OR a fixed value, see
+        // _inputEditor / _blockProperties for AO blocks)
         if (b.inputs[0] == null) {
           errors.add('Saída "${b.title}" (${b.id}) está sem entrada');
           hasError = true;
         }
-        // não exige saída
+        // no output required
       }
-      // BLOCO DE PROCESSAMENTO (math / compare / timer)
-      // BLOCO DE PROCESSAMENTO
+      // PROCESSING BLOCK (math / compare / timer / pid)
       else {
         // TIMER
         if (b.type == BlockType.timer) {
@@ -991,7 +1053,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             continue;
           }
         }
-        // OUTROS (math / compare)
+        // OTHERS (math / compare / pid — pid falls here too, since it's
+        // neither IO nor Timer; its 3 inputs (enable/PV/setpoint) are
+        // all required by the generic loop below, same as math's A/B).
         else {
           for (int i = 0; i < b.maxInputs; i++) {
             if (b.inputs[i] == null) {
@@ -1015,7 +1079,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       if (hasError) invalidBlocks.add(b);
     }
 
-    setState(() {}); // força repaint das bordas
+    setState(() {}); // forces border repaint
 
     if (errors.isNotEmpty) {
       _showCompileErrors(errors);
@@ -1103,6 +1167,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   // It also rebuilds `connections` against those same new instances, so
   // a restored snapshot's `connections` list is always consistent with
   // its `blocks` list — this is what the old code was missing entirely.
+  //
+  // PID tuning fields (Kp/Ki/Kd/outMin/outMax) are plain values copied
+  // along with the rest of the block's constructor args, same as
+  // ioType/ioChannel — no extra handling needed here.
   // ---------------------------------------------------------------------
   _EditorSnapshot _takeSnapshot() {
     final idMap = <String, LogicBlock>{};
@@ -1117,6 +1185,11 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         position: b.position,
         ioType: b.ioType,
         ioChannel: b.ioChannel,
+        pidKp: b.pidKp,
+        pidKi: b.pidKi,
+        pidKd: b.pidKd,
+        pidOutMin: b.pidOutMin,
+        pidOutMax: b.pidOutMax,
       );
       idMap[b.id] = nb;
       newBlocks.add(nb);
@@ -1201,7 +1274,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   }
 
   void _clearAllLogic() {
-    _pushUndo(); // permite desfazer se quiser depois
+    _pushUndo(); // allows undoing this later if wanted
 
     setState(() {
       blocks.clear();
@@ -1211,8 +1284,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       linkingFrom = null;
       isLinkingMode = false;
       _inputControllers.clear();
+      _pidControllers.clear();
 
-      // MUITO IMPORTANTE
+      // VERY IMPORTANT
       _idCounter = 0;
     });
 
@@ -1252,6 +1326,11 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                     ioType: _clipboardBlock!.ioType,
                     ioChannel: _clipboardBlock!.ioChannel,
                     position: _clipboardBlock!.position + const Offset(30, 30),
+                    pidKp: _clipboardBlock!.pidKp,
+                    pidKi: _clipboardBlock!.pidKi,
+                    pidKd: _clipboardBlock!.pidKd,
+                    pidOutMin: _clipboardBlock!.pidOutMin,
+                    pidOutMax: _clipboardBlock!.pidOutMax,
                   ),
                 );
               });
@@ -1319,6 +1398,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               blocks.remove(deleted);
               if (blocks.isEmpty) _idCounter = 0;
               _inputControllers.remove(deleted.id);
+              _pidControllers.remove(deleted.id);
               invalidBlocks.remove(deleted);
               selectedBlock = null;
             });
@@ -1463,10 +1543,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             ]),
 
             // ---------------------------------------------------------
-            // NOVO: portas lógicas booleanas. Por baixo dos panos elas
-            // são blocos "math" comuns (mesmo BlockType do firmware) —
-            // ver o comentário grande logo acima de _mathOpFromTitle
-            // explicando por que isso funciona sem tocar no ESP32.
+            // Boolean logic gates. Under the hood these are just regular
+            // "math" blocks (same BlockType the firmware knows) — see
+            // the big comment above _mathOpFromTitle explaining why this
+            // works without touching the ESP32.
             // ---------------------------------------------------------
             _group('Lógica (AND / OR / NOT)', Colors.tealAccent, [
               _drag(kAndTitle, Icons.merge_type, BlockType.math),
@@ -1476,6 +1556,18 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
             _group('Tempo', Colors.purpleAccent, [
               _drag('Timer', Icons.timer, BlockType.timer),
+            ]),
+
+            // ---------------------------------------------------------
+            // NEW: PID controller block. Unlike every other block above,
+            // BLOCK_PID is NOT implemented in the firmware yet (see the
+            // big comment on isPidBlock/_serializeBlock). Dragging this
+            // onto the canvas, configuring it, and sending it is fully
+            // safe — it just won't have any effect on the real output
+            // until logic.cpp gets a BLOCK_PID case.
+            // ---------------------------------------------------------
+            _group('Controle (PID)', Colors.pinkAccent, [
+              _drag('PID', Icons.tune, BlockType.pid),
             ]),
           ],
         ),
@@ -1563,7 +1655,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       children: [
         InteractiveViewer(
           transformationController: _transformCtrl,
-          minScale: 0.5,
+          minScale: 0.1,
           maxScale: 2.5,
           boundaryMargin: const EdgeInsets.all(500),
 
@@ -1593,10 +1685,20 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                   position: canvasPoint - const Offset(85, 34),
                 );
 
-                // Porta NOT recém-criada já nasce com A=1 fixo, sobrando
-                // só a entrada B como ligável (ver isNotGate / _inputEditor).
+                // Freshly-created NOT gate already gets A=1 fixed, leaving
+                // only the B input linkable (see isNotGate / _inputEditor).
                 if (newBlock.title == kNotTitle) {
                   newBlock.inputs[0] = InputSource.constant(1);
+                }
+
+                // Freshly-created PID block: default enable to "always on"
+                // (1) and setpoint to 0, so the block compiles right away
+                // with sensible defaults — only PV is left unset, since
+                // that one really should be linked to a real signal (an
+                // AI block) rather than left as a typed constant.
+                if (newBlock.type == BlockType.pid) {
+                  newBlock.inputs[0] = InputSource.constant(1); // enable
+                  newBlock.inputs[2] = InputSource.constant(0); // setpoint
                 }
 
                 blocks.add(newBlock);
@@ -1607,7 +1709,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
-                    // NEW: restores keyboard focus to the editor's
+                    // Restores keyboard focus to the editor's
                     // RawKeyboardListener. Any TextField clicked before
                     // this (e.g. a fixed-value field in the properties
                     // panel) steals focus, which silently breaks
@@ -1620,8 +1722,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                     });
                   },
                   child: SizedBox(
-                    width: 25000,
-                    height: 25000,
+                    width: 50000,
+                    height: 50000,
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
@@ -1629,7 +1731,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                           child: CustomPaint(painter: _GridPainter()),
                         ),
 
-                        // conexões fixas
+                        // fixed connections
                         ...connections.map(_drawConnection),
 
                         ...blocks.map(_blockWidget),
@@ -1642,7 +1744,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           ),
         ),
         Positioned(right: 24, bottom: 24, child: _fullscreenButton()),
-        // botão de ocultar/mostrar toolbox
+        // toolbox show/hide button
         Positioned(
           left: 0,
           top: 0,
@@ -1709,8 +1811,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   }
 
   Widget _blockWidget(LogicBlock b) {
-    // NEW: fetch the constant-value summary (e.g. "A=5 · B=3") once per
-    // build so it can be rendered as a subtitle below the block title.
+    // Fetch the constant-value summary (e.g. "A=5 · B=3") once per build
+    // so it can be rendered as a subtitle below the block title.
     final constantSummary = _constantSummary(b);
 
     return Positioned(
@@ -1720,23 +1822,23 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         behavior: HitTestBehavior.translucent,
 
         onTap: () {
-          // NEW: same focus-reclaiming fix as the canvas background tap
+          // Same focus-reclaiming fix as the canvas background tap
           // above — makes sure Delete/Ctrl+C/Ctrl+Z/Ctrl+Y keep working
           // after interacting with a TextField in the properties panel.
           _focusNode.requestFocus();
           setState(() {
             invalidBlocks.remove(b);
 
-            //  Se está em modo ligação
+            // If currently in linking mode
             if (isLinkingMode && linkingFrom != null) {
-              // clicou no mesmo bloco → cancela ligação
+              // clicked the same block again -> cancel linking
               if (linkingFrom == b) {
                 isLinkingMode = false;
                 linkingFrom = null;
                 return;
               }
 
-              // ❌ limite de saída
+              // output limit
               if (outputsCount(linkingFrom!) >= 1) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -1748,7 +1850,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 return;
               }
 
-              // limite de entrada
+              // input limit
               if (inputsCount(b) >= b.maxInputs) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -1776,22 +1878,29 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 return;
               }
 
-              // FIX: escolhe o índice de destino da ligação de forma
-              // explícita por tipo de bloco, em vez de só procurar um
-              // slot vazio (o que falhava sempre que o slot já tinha um
-              // valor fixo digitado, como "PWM: 50%" — indexWhere nunca
-              // achava null e a ligação era descartada silenciosamente).
+              // FIX: explicitly choose the destination input index by
+              // block type, instead of only looking for an empty slot
+              // (which used to fail whenever the slot already had a
+              // fixed value typed in, like "PWM: 50%" — indexWhere would
+              // never find null and the link was silently dropped).
               //
-              // - AO/DO (saída) e gatilho do Timer: SEMPRE índice 0,
-              //   porque é o único índice que o firmware realmente lê
-              //   (getInputValue(b.inputs[0]) em logic.cpp). Substitui
-              //   qualquer valor fixo que já estivesse lá.
-              // - Porta NOT: sempre índice 1 (a entrada B) — a entrada A
-              //   é travada em 1 pela própria UI.
-              // - Math/Compare genéricos: primeiro tenta achar um slot
-              //   vazio; se não achar (os dois já têm valor fixo),
-              //   substitui o primeiro que só tinha uma constante em vez
-              //   de travar sem fazer nada.
+              // - AO/DO (output) and the Timer trigger: ALWAYS index 0,
+              //   because that's the only index the firmware actually
+              //   reads (getInputValue(b.inputs[0]) in logic.cpp).
+              //   Overwrites any fixed value that was already there.
+              // - NOT gate: always index 1 (the B input) — the A input
+              //   is locked to 1 by the UI itself.
+              // - Generic math/compare: first tries to find an empty
+              //   slot; if none is found (both already have a fixed
+              //   value), overwrites the first one that only had a
+              //   constant instead of silently doing nothing.
+              // - PID falls into the generic branch too: since PV
+              //   (index 1) is the only slot left null by default (see
+              //   the drag-and-drop defaults above), a new link lands on
+              //   PV automatically — which is exactly the common case
+              //   (link an AI into PV). To link something into Enable or
+              //   Setpoint instead, clear that field's text first (same
+              //   pattern already used for every other block type).
               int idx;
               if (isOutputIO(b) || b.type == BlockType.timer) {
                 idx = 0;
@@ -1806,9 +1915,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 }
               }
 
-              // Só bloqueia se o destino já é uma ligação de BLOCO de
-              // verdade — um valor fixo (constante) pode sempre ser
-              // sobrescrito por uma nova ligação.
+              // Only blocks if the destination is already a real BLOCK
+              // link — a fixed value (constant) can always be overwritten
+              // by a new link.
               if (idx == -1 || b.inputs[idx]?.type == InputSourceType.block) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -1830,12 +1939,12 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               return;
             }
 
-            // Caso NORMAL: apenas selecionar
+            // NORMAL case: just select
             selectedBlock = b;
           });
         },
         onDoubleTap: () {
-          // NEW: same focus-reclaiming fix, so entering link mode also
+          // Same focus-reclaiming fix, so entering link mode also
           // guarantees keyboard shortcuts keep working afterwards.
           _focusNode.requestFocus();
           setState(() {
@@ -1869,11 +1978,11 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 width: invalidBlocks.contains(b) ? 3 : 2,
               ),
             ),
-            // NEW: switched from a bare Row to a Column so we can add an
-            // optional subtitle line with the constant-value summary
-            // right below the icon/title row, without touching layout
-            // elsewhere (connections still anchor off the same block
-            // width/position as before).
+            // Column (instead of a bare Row) so we can add an optional
+            // subtitle line with the constant-value summary right below
+            // the icon/title row, without touching layout elsewhere
+            // (connections still anchor off the same block width/position
+            // as before).
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1931,12 +2040,137 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     );
   }
 
+  // ---------------------------------------------------------------------
+  // PID gain/output-clamp controllers, kept separate from
+  // _inputControllers since they don't map to inputs[] — they map
+  // directly to LogicBlock.pidKp/pidKi/pidKd/pidOutMin/pidOutMax.
+  // ---------------------------------------------------------------------
+  final Map<String, List<TextEditingController>> _pidControllers = {};
+
+  List<TextEditingController> _pidControllersFor(LogicBlock b) {
+    return _pidControllers.putIfAbsent(
+      b.id,
+      () => [
+        TextEditingController(text: b.pidKp.toString()),
+        TextEditingController(text: b.pidKi.toString()),
+        TextEditingController(text: b.pidKd.toString()),
+        TextEditingController(text: b.pidOutMin.toString()),
+        TextEditingController(text: b.pidOutMax.toString()),
+      ],
+    );
+  }
+
+  Widget _pidGainsEditor(LogicBlock b) {
+    final ctrls = _pidControllersFor(b);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: ctrls[0],
+          keyboardType: const TextInputType.numberWithOptions(
+            decimal: true,
+            signed: true,
+          ),
+          decoration: InputDecoration(
+            labelText: 'Kp (Proporcional)',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFF1A1A1A),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onChanged: (v) {
+            final parsed = double.tryParse(v);
+            if (parsed != null) setState(() => b.pidKp = parsed);
+          },
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: ctrls[1],
+          keyboardType: const TextInputType.numberWithOptions(
+            decimal: true,
+            signed: true,
+          ),
+          decoration: InputDecoration(
+            labelText: 'Ki (Integral)',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFF1A1A1A),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onChanged: (v) {
+            final parsed = double.tryParse(v);
+            if (parsed != null) setState(() => b.pidKi = parsed);
+          },
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: ctrls[2],
+          keyboardType: const TextInputType.numberWithOptions(
+            decimal: true,
+            signed: true,
+          ),
+          decoration: InputDecoration(
+            labelText: 'Kd (Derivativo)',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFF1A1A1A),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onChanged: (v) {
+            final parsed = double.tryParse(v);
+            if (parsed != null) setState(() => b.pidKd = parsed);
+          },
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: ctrls[3],
+          keyboardType: const TextInputType.numberWithOptions(
+            decimal: true,
+            signed: true,
+          ),
+          decoration: InputDecoration(
+            labelText: 'Saída mínima (%)',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFF1A1A1A),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onChanged: (v) {
+            final parsed = double.tryParse(v);
+            if (parsed != null) setState(() => b.pidOutMin = parsed);
+          },
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: ctrls[4],
+          keyboardType: const TextInputType.numberWithOptions(
+            decimal: true,
+            signed: true,
+          ),
+          decoration: InputDecoration(
+            labelText: 'Saída máxima (%)',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFF1A1A1A),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onChanged: (v) {
+            final parsed = double.tryParse(v);
+            if (parsed != null) setState(() => b.pidOutMax = parsed);
+          },
+        ),
+      ],
+    );
+  }
+
   Widget _inputEditor(LogicBlock b, int index) {
     final input = b.inputs[index];
 
-    // Porta NOT: a entrada A (index 0) é sempre fixa em 1 e não é
-    // editável pela UI — só mostramos um texto informativo. Isso garante
-    // que ninguém troque esse valor sem querer e quebre o "1 - B".
+    // NOT gate: the A input (index 0) is always fixed at 1 and not
+    // editable through the UI — just show an informational text. This
+    // guarantees nobody accidentally changes this value and breaks the
+    // "1 - B" computation.
     if (isNotGate(b) && index == 0) {
       return const Padding(
         padding: EdgeInsets.only(bottom: 12),
@@ -1950,6 +2184,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     final isAoPercent = isAnalogOutput(b);
     final isTimeField = isTimerTime(b, index);
     final isTriggerField = isTimerTrigger(b, index);
+    final isPidEnableField = isPidEnable(b, index);
+    final isPidPVField = isPidPV(b, index);
+    final isPidSetpointField = isPidSetpoint(b, index);
 
     String labelText;
     String hintText;
@@ -1962,23 +2199,35 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     } else if (isTriggerField) {
       labelText = 'Gatilho';
       hintText = '0 ou 1';
+    } else if (isPidEnableField) {
+      labelText = 'Habilita (Enable)';
+      hintText = '0 ou 1';
+    } else if (isPidPVField) {
+      labelText = 'Variável de Processo (PV)';
+      hintText = 'Valor fixo (normalmente ligado a uma entrada AI)';
+    } else if (isPidSetpointField) {
+      labelText = 'Setpoint';
+      hintText = 'Valor desejado';
     } else {
       labelText = 'Entrada ${_inputShortLabel(b, index)}';
       hintText = 'Valor fixo';
     }
 
-    // Timer's time input (index 1) is always independently editable as a
-    // constant — it must never be blocked by the "only one constant per
-    // block" rule used for math/compare A/B, since time is meant to stay
-    // a fixed value no matter what the trigger input is doing.
-    final alreadyHasConstant = isTimeField
+    // Timer's time input (index 1), and all three PID inputs
+    // (enable/PV/setpoint), are always independently editable as
+    // constants — they must never be blocked by the "only one constant
+    // per block" rule used for math/compare's shared A/B pair, since
+    // each of them is an independent configuration value rather than a
+    // shared slot.
+    final bypassSharedConstantRule = isTimeField || isPidBlock(b);
+    final alreadyHasConstant = bypassSharedConstantRule
         ? false
         : (hasConstantInput(b) && input?.type != InputSourceType.constant);
 
     final controller = _controllersFor(b)[index];
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12), // espaçamento
+      padding: const EdgeInsets.only(bottom: 12), // spacing
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2014,9 +2263,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                       value = value.clamp(0, 100);
                     }
 
-                    // Trigger is a digital signal — keep it to 0/1 so it
-                    // behaves the same as a linked DI/compare block would.
-                    if (isTriggerField) {
+                    // Trigger and PID enable are digital signals — keep
+                    // them to 0/1 so they behave the same as a linked
+                    // DI/compare block would.
+                    if (isTriggerField || isPidEnableField) {
                       value = value.clamp(0, 1);
                     }
 
@@ -2101,20 +2351,24 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
         const Divider(height: 24),
 
-        // Analog output (AO/PWM) blocks and Timer blocks both get their
-        // fixed-value editor(s) rendered here too now, not just
-        // math/compare. Timer shows both slots: trigger (link or 0/1) and
-        // time (always a typed constant). Portas AND/OR/NOT também são
-        // BlockType.math, então caem nesse mesmo bloco de código.
+        // Analog output (AO/PWM), Timer, and PID blocks all get their
+        // fixed-value editor(s) rendered here too, not just math/compare.
+        // Timer shows both slots (trigger + time); PID shows its three
+        // slots (enable/PV/setpoint) plus the gains editor right below.
+        // AND/OR/NOT gates are also BlockType.math, so they fall into
+        // this same block of code.
         if (b.type == BlockType.math ||
             b.type == BlockType.compare ||
             b.type == BlockType.timer ||
+            isPidBlock(b) ||
             isAnalogOutput(b)) ...[
           Text(
             isAnalogOutput(b)
                 ? 'Valor fixo (PWM)'
                 : b.type == BlockType.timer
                 ? 'Gatilho e tempo'
+                : isPidBlock(b)
+                ? 'Entradas do PID (Habilita / PV / Setpoint)'
                 : isNotGate(b)
                 ? 'Porta NÃO (inversora)'
                 : 'Entradas (valores fixos)',
@@ -2123,6 +2377,16 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           const SizedBox(height: 8),
 
           ...List.generate(b.maxInputs, (i) => _inputEditor(b, i)),
+
+          if (isPidBlock(b)) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Ganhos do controlador',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            _pidGainsEditor(b),
+          ],
 
           const Divider(height: 24),
         ],
@@ -2174,6 +2438,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 blocks.remove(b);
                 if (blocks.isEmpty) _idCounter = 0;
                 _inputControllers.remove(b.id);
+                _pidControllers.remove(b.id);
                 invalidBlocks.remove(b);
                 selectedBlock = null;
               });
@@ -2212,10 +2477,10 @@ class _ConnectionPainter extends CustomPainter {
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
 
-    // centro do port de saída (dentro do bloco)
+    // output port center (inside the block)
     final start = from.position + const Offset(140, 34);
 
-    // centro do port de entrada (dentro do bloco)
+    // input port center (inside the block)
     final end = to.position + const Offset(0, 34);
 
     final path = Path()
