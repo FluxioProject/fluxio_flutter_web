@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:html' as html;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tcc_flutter/backend_api/api_communication.dart';
@@ -763,6 +765,66 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   bool isPidPV(LogicBlock b, int index) => isPidBlock(b) && index == 1;
   bool isPidSetpoint(LogicBlock b, int index) => isPidBlock(b) && index == 2;
 
+  // ---------------------------------------------------------------------
+  // NEW: PID auto-routing by source IO type.
+  //
+  // Field bug found: nothing stopped a user from double-click-linking an
+  // AI (analog, e.g. a temperature sensor) into the PID's "Habilita"
+  // slot, or a DI (digital on/off) into "PV" — both compile fine (every
+  // slot just needs *some* input) but produce a controller that reads
+  // nonsense (a wildly swinging float treated as a boolean enable, or a
+  // 0/1 signal treated as the process variable).
+  //
+  // Instead of relying on the generic "first empty slot" placement used
+  // for math/compare (see the linking handler in _blockWidget), a link
+  // landing on a PID block is now routed by what KIND of source it is:
+  //   - AI source  -> always PV (index 1). Analog signals are process
+  //     variables, never a boolean.
+  //   - DI source  -> always Enable (index 0). Digital on/off signals
+  //     enable/disable, never a continuous PV.
+  //   - Anything else (compare/math/timer/another PID's output, etc. —
+  //     genuinely boolean-like or purpose-built results) falls back to
+  //     the first empty slot among Enable/PV/Setpoint, in that order,
+  //     same spirit as the generic branch.
+  //
+  // Returns -1 when the natural target slot is already occupied by a
+  // real block link, so the caller can show the same "already linked"
+  // rejection message used everywhere else instead of silently
+  // overwriting an existing connection.
+  // ---------------------------------------------------------------------
+  int _pidTargetIndexForSource(LogicBlock source, LogicBlock pid) {
+    int? preferred;
+
+    if (source.type == BlockType.io && source.ioType == IOType.ai.index) {
+      preferred = 1; // PV
+    } else if (source.type == BlockType.io &&
+        source.ioType == IOType.di.index) {
+      preferred = 0; // Enable
+    }
+
+    if (preferred != null) {
+      final current = pid.inputs[preferred];
+      if (current != null && current.type == InputSourceType.block) {
+        return -1; // already linked to another block — refuse
+      }
+      return preferred;
+    }
+
+    // Non-IO source (math/compare/timer/pid output, etc.): first empty
+    // slot among Enable(0)/PV(1)/Setpoint(2).
+    for (final i in [0, 1, 2]) {
+      if (pid.inputs[i] == null) return i;
+    }
+
+    // All three already have *something* — only overwrite a slot that
+    // holds a fixed constant, never a real block link.
+    for (final i in [0, 1, 2]) {
+      if (pid.inputs[i]?.type == InputSourceType.constant) return i;
+    }
+
+    return -1;
+  }
+
   // Short label used both in the "linked inputs" list and as a base for
   // the editable-field label below.
   String _inputShortLabel(LogicBlock b, int index) {
@@ -1002,6 +1064,122 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     );
   }
 
+  // ---------------------------------------------------------------------
+  // IMPORT / EXPORT TO A JSON FILE
+  //
+  // This is a purely local, offline operation — it reads/writes the same
+  // JSON shape produced by _buildLogicJson()/_deserializeLogic() (the
+  // exact program a device would receive over MQTT or the backend would
+  // store), but round-trips it through a file the user picks instead.
+  // Useful for keeping a backup of a program, moving it between devices,
+  // or editing it outside the app.
+  //
+  // FIXED: export originally used FilePicker.platform.saveFile(...), but
+  // that throws `UnimplementedError: saveFile() has not been implemented`
+  // on Flutter Web with the version of file_picker this project pins
+  // (8.3.1) — the web implementation of saveFile is a known gap in the
+  // plugin. Since this app is Flutter Web only, export now triggers a
+  // browser download directly via dart:html (Blob + AnchorElement),
+  // which needs no plugin support at all and is the standard way to
+  // "save a file" from a Flutter Web app. Import is untouched: pickFiles
+  // (used to open the file dialog) IS implemented on web and keeps
+  // working exactly as before.
+  // ---------------------------------------------------------------------
+
+  // Builds a filesystem-safe "yyyyMMdd_HHmmss" timestamp for the
+  // exported file name, so multiple exports never collide and it's
+  // obvious at a glance which one is newest.
+  String _timestampForFilename() {
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${now.year}${two(now.month)}${two(now.day)}_'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+  }
+
+  Future<void> _exportLogicToFile() async {
+    try {
+      final logicJson = _buildLogicJson();
+      final jsonString = const JsonEncoder.withIndent('  ').convert(logicJson);
+
+      final fileName =
+          'fluxio_logic_${widget.device.deviceId}_${_timestampForFilename()}.json';
+
+      // Browser-native download: wrap the JSON text in a Blob, give it a
+      // temporary object URL, and click a hidden <a download> pointing
+      // at it. This is synchronous and needs no user prompt beyond the
+      // browser's own "Save As" dialog (or a direct download into the
+      // downloads folder, depending on the browser's settings).
+      final blob = html.Blob([jsonString], 'application/json');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+
+      html.AnchorElement(href: url)
+        ..setAttribute('download', fileName)
+        ..click();
+
+      html.Url.revokeObjectUrl(url);
+
+      if (mounted) {
+        showMessage(context, 'Lógica exportada com sucesso.', false);
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, 'Erro ao exportar lógica: $e', true);
+      }
+    }
+  }
+
+  Future<void> _importLogicFromFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: 'Importar lógica',
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true, // required on web to get the bytes in-memory
+      );
+
+      if (result == null || result.files.isEmpty) return; // user cancelled
+
+      final file = result.files.first;
+      if (file.bytes == null) {
+        if (mounted) {
+          showMessage(
+            context,
+            'Não foi possível ler o arquivo selecionado.',
+            true,
+          );
+        }
+        return;
+      }
+
+      final decoded = jsonDecode(utf8.decode(file.bytes!));
+
+      if (decoded is! Map<String, dynamic> || !decoded.containsKey('blocks')) {
+        if (mounted) {
+          showMessage(
+            context,
+            'Arquivo inválido: formato de lógica não reconhecido.',
+            true,
+          );
+        }
+        return;
+      }
+
+      // Snapshot the current canvas first so the import itself can be
+      // undone with Ctrl+Z like any other bulk change.
+      _pushUndo();
+
+      _deserializeLogic(decoded);
+
+      if (mounted) {
+        showMessage(context, 'Lógica importada com sucesso.', false);
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, 'Erro ao importar lógica: $e', true);
+      }
+    }
+  }
+
   void _compileAndSend() {
     invalidBlocks.clear();
     final errors = <String>[];
@@ -1062,6 +1240,43 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               final label = _inputShortLabel(b, i);
               errors.add(
                 'Bloco "${b.title}" (${b.id}) está sem entrada $label',
+              );
+              invalidBlocks.add(b);
+            }
+          }
+
+          // ---------------------------------------------------------
+          // NEW: PID semantic validation (Enable vs PV wiring).
+          //
+          // The auto-routing in the linking handler (see
+          // _pidTargetIndexForSource) prevents this mistake for links
+          // made from now on, but it can't fix programs that were
+          // already wired backwards before this existed — imported from
+          // a file, loaded from an old saved backend program, etc. This
+          // catches those at compile time instead of silently sending a
+          // controller that reads nonsense.
+          // ---------------------------------------------------------
+          if (isPidBlock(b)) {
+            final enableSrc = b.inputs[0]?.fromBlock;
+            if (enableSrc != null &&
+                enableSrc.type == BlockType.io &&
+                enableSrc.ioType == IOType.ai.index) {
+              errors.add(
+                'PID (${b.id}): "Habilita" está ligado a uma entrada '
+                'analógica (AI). Ligue um sinal digital (DI) ou use um '
+                'valor fixo 0/1.',
+              );
+              invalidBlocks.add(b);
+            }
+
+            final pvSrc = b.inputs[1]?.fromBlock;
+            if (pvSrc != null &&
+                pvSrc.type == BlockType.io &&
+                pvSrc.ioType == IOType.di.index) {
+              errors.add(
+                'PID (${b.id}): "PV" está ligado a uma entrada digital '
+                '(DI). A variável de processo deve vir de uma entrada '
+                'analógica (AI).',
               );
               invalidBlocks.add(b);
             }
@@ -1418,6 +1633,27 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             'Editor Lógico Visual   -   ${widget.device.name} (${widget.device.deviceId})',
           ),
           actions: [
+            // Import/export the current logic program to a local JSON
+            // file. Placed to the left of the "clear logic" button,
+            // grouped together since both are file/bulk operations on
+            // the whole program rather than on a single block.
+            IconButton(
+              tooltip: 'Importar lógica de um arquivo JSON',
+              icon: const Icon(
+                Icons.file_upload,
+                color: Colors.lightBlueAccent,
+              ),
+              onPressed: _importLogicFromFile,
+            ),
+            IconButton(
+              tooltip: 'Exportar lógica para um arquivo JSON',
+              icon: const Icon(
+                Icons.file_download,
+                color: Colors.lightBlueAccent,
+              ),
+              onPressed: _exportLogicToFile,
+            ),
+
             IconButton(
               tooltip: 'Limpar lógica (apagar todos os blocos)',
               icon: const Icon(Icons.delete_sweep, color: Colors.redAccent),
@@ -1890,22 +2126,22 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               //   Overwrites any fixed value that was already there.
               // - NOT gate: always index 1 (the B input) — the A input
               //   is locked to 1 by the UI itself.
+              // - PID: routed by the SOURCE block's IO type (AI -> PV,
+              //   DI -> Enable), never by "first empty slot" — see
+              //   _pidTargetIndexForSource above for why (this is the
+              //   fix for the Habilita/PV-inverted wiring bug found in
+              //   the field).
               // - Generic math/compare: first tries to find an empty
               //   slot; if none is found (both already have a fixed
               //   value), overwrites the first one that only had a
               //   constant instead of silently doing nothing.
-              // - PID falls into the generic branch too: since PV
-              //   (index 1) is the only slot left null by default (see
-              //   the drag-and-drop defaults above), a new link lands on
-              //   PV automatically — which is exactly the common case
-              //   (link an AI into PV). To link something into Enable or
-              //   Setpoint instead, clear that field's text first (same
-              //   pattern already used for every other block type).
               int idx;
               if (isOutputIO(b) || b.type == BlockType.timer) {
                 idx = 0;
               } else if (isNotGate(b)) {
                 idx = 1;
+              } else if (isPidBlock(b)) {
+                idx = _pidTargetIndexForSource(linkingFrom!, b);
               } else {
                 idx = b.inputs.indexWhere((i) => i == null);
                 if (idx == -1) {
