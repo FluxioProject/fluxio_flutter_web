@@ -91,6 +91,11 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
                   pending.toStringAsFixed(widget.aoCfg[i].decimals);
 
               if (matches) {
+                final elapsed = DateTime.now().difference(_aoPendingSince[i]!);
+                debugPrint(
+                  '[METRIC] ao_roundtrip_ms=${elapsed.inMilliseconds} channel=$i',
+                );
+
                 // Device confirmed the value we sent.
                 _aoPendingValue[i] = null;
                 _aoPendingSince[i] = null;
@@ -122,6 +127,11 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
 
             if (pending != null) {
               if ((t.doo[i] == 1) == pending) {
+                final elapsed = DateTime.now().difference(_doPendingSince[i]!);
+                debugPrint(
+                  '[METRIC] do_roundtrip_ms=${elapsed.inMilliseconds} channel=$i',
+                );
+
                 _doPendingValue[i] = null;
                 _doPendingSince[i] = null;
                 _doFailed[i] = false;
@@ -476,10 +486,7 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
                   ),
                 ),
 
-                if (status != null) ...[
-                  const SizedBox(height: 6),
-                  status,
-                ],
+                if (status != null) ...[const SizedBox(height: 6), status],
 
                 const SizedBox(height: 6),
 

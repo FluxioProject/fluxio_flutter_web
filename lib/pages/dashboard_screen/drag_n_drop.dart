@@ -91,6 +91,13 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   final List<_EditorSnapshot> _undoStack = [];
   final List<_EditorSnapshot> _redoStack = [];
 
+  // NEW: tracks whether the current drag gesture already pushed an undo
+  // snapshot. A drag fires onPanUpdate many times (once per pointer
+  // move event) but must only count as ONE undoable action — this flag
+  // makes sure _pushUndo() runs once per gesture, on the first move,
+  // instead of once per pixel.
+  bool _dragSnapshotPushed = false;
+
   int _idCounter = 0;
   List<Connection> inputConnections(LogicBlock b) =>
       connections.where((c) => c.to == b).toList();
@@ -126,6 +133,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   bool _awaitingSendConfirmation = false;
   Timer? _sendConfirmTimer;
   List<dynamic>? _lastSentBlocksJson;
+  DateTime? _logicSendClickTime;
 
   static const Duration _sendConfirmTimeout = Duration(seconds: 6);
 
@@ -295,14 +303,11 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     }
 
     if (b.type == BlockType.pid) {
-      // Dedicated config object for the (upcoming) firmware PID block —
-      // kept separate from 'in', which only carries the live enable/PV/
+      // Dedicated config object for the firmware PID block — kept
+      // separate from 'in', which only carries the live enable/PV/
       // setpoint signals. Gains and the output clamp are static tuning
-      // parameters the firmware will read once at load time, the same
-      // way it reads 'op' for math/compare blocks. NOTE: the firmware
-      // doesn't support BLOCK_PID yet — sending this is safe (no crash,
-      // see BLOCK_PID follow-up), but it won't actually control anything
-      // until that's implemented.
+      // parameters the firmware reads once at load time, the same way
+      // it reads 'op' for math/compare blocks.
       base['pid'] = {
         'kp': b.pidKp,
         'ki': b.pidKi,
@@ -310,6 +315,15 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         'outMin': b.pidOutMin,
         'outMax': b.pidOutMax,
       };
+    }
+
+    if (b.type == BlockType.tpo) {
+      // Dedicated config object for the TPO (time-proportioning output)
+      // block, same rationale as 'pid' above: the cycle period is a
+      // static config value the firmware reads once at load time, kept
+      // separate from 'in', which only carries the live duty-cycle
+      // signal (normally fed from a PID's output).
+      base['tpo'] = {'period': b.tpoPeriodMs};
     }
 
     return base;
@@ -435,6 +449,15 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         _awaitingSendConfirmation = false;
         _sendConfirmTimer?.cancel();
         final matched = _logicMatchesSent(json);
+
+        if (_logicSendClickTime != null) {
+          final elapsed = DateTime.now().difference(_logicSendClickTime!);
+          debugPrint(
+            '[METRIC] logic_roundtrip_ms=${elapsed.inMilliseconds} matched=$matched',
+          );
+          _logicSendClickTime = null;
+        }
+
         _showSendConfirmationResult(matched: matched);
         return;
       }
@@ -511,17 +534,19 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           position = Offset(xOutput, yOutput);
           yOutput += spacingY;
 
-          // processing (timer/math/compare/pid)
+          // processing (timer/math/compare/pid/tpo)
         } else {
           position = Offset(xProcess, yProcess);
           yProcess += spacingY;
         }
       }
 
-      // PID tuning parameters, if present. Read defensively since the
-      // firmware doesn't echo this back yet and older saved programs
-      // won't have it at all.
+      // PID tuning parameters, if present. Read defensively since older
+      // saved programs won't have it at all.
       final Map? pidJson = b['pid'];
+
+      // TPO config, if present. Same defensive read as pidJson above.
+      final Map? tpoJson = b['tpo'];
 
       final block = LogicBlock(
         id: 'b$id',
@@ -536,6 +561,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         pidKd: (pidJson?['kd'] as num?)?.toDouble() ?? 0.0,
         pidOutMin: (pidJson?['outMin'] as num?)?.toDouble() ?? 0.0,
         pidOutMax: (pidJson?['outMax'] as num?)?.toDouble() ?? 100.0,
+        tpoPeriodMs: (tpoJson?['period'] as num?)?.toDouble() ?? 10000.0,
       );
 
       // TIMER needs to keep the received time value
@@ -629,6 +655,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       return 'PID';
     }
 
+    if (t == BlockType.tpo.index) {
+      return 'TPO (SSR)';
+    }
+
     if (t == BlockType.io.index) {
       final io = b['io'] as List?;
       if (io == null) return 'IO ?';
@@ -656,6 +686,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     }
     if (b['t'] == BlockType.pid.index) {
       return Icons.tune;
+    }
+    if (b['t'] == BlockType.tpo.index) {
+      return Icons.power_settings_new;
     }
 
     if (b['t'] == BlockType.io.index) {
@@ -753,12 +786,6 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   // Kp/Ki/Kd/outMin/outMax are NOT part of inputs[] — they're static
   // tuning parameters stored directly on the block (see blocks.dart) and
   // edited via _pidGainsEditor below.
-  //
-  // NOTE: the firmware does not implement BLOCK_PID yet. Sending this
-  // block over MQTT is safe (logic.cpp's executeLogic() switch has no
-  // default case, so an unknown block type just never executes and its
-  // lastValue stays 0 — no crash, no dangerous output), but the block
-  // won't actually control anything until BLOCK_PID is added to logic.cpp.
   // ---------------------------------------------------------------------
   bool isPidBlock(LogicBlock b) => b.type == BlockType.pid;
   bool isPidEnable(LogicBlock b, int index) => isPidBlock(b) && index == 0;
@@ -825,6 +852,23 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     return -1;
   }
 
+  // ---------------------------------------------------------------------
+  // TPO (time-proportioning output) block. Single signal input:
+  //   input[0] = duty cycle, 0-100 (%) — typically linked from a PID's
+  //              output, but can also be a typed fixed value for testing
+  //              the SSR wiring without a full control loop running yet.
+  // The cycle period is NOT part of inputs[] — it's a static config
+  // value stored directly on the block (tpoPeriodMs) and edited via
+  // _tpoConfigEditor below, same pattern as PID's gains.
+  //
+  // Unlike BLOCK_PID when it was first introduced, the firmware already
+  // implements BLOCK_TPO end-to-end (see logic.cpp's executeLogic()),
+  // so this block is live from day one — no "safe to send but inert"
+  // caveat here.
+  // ---------------------------------------------------------------------
+  bool isTpoBlock(LogicBlock b) => b.type == BlockType.tpo;
+  bool isTpoDuty(LogicBlock b, int index) => isTpoBlock(b) && index == 0;
+
   // Short label used both in the "linked inputs" list and as a base for
   // the editable-field label below.
   String _inputShortLabel(LogicBlock b, int index) {
@@ -834,6 +878,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     if (isPidEnable(b, index)) return 'Habilita';
     if (isPidPV(b, index)) return 'PV';
     if (isPidSetpoint(b, index)) return 'SP';
+    if (isTpoDuty(b, index)) return 'Duty';
     if (isNotGate(b)) return index == 0 ? 'A (fixo)' : 'Entrada';
     if (b.maxInputs > 1) return index == 0 ? 'A' : 'B';
     return 'IN';
@@ -850,6 +895,24 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   // ---------------------------------------------------------------------
   String? _constantSummary(LogicBlock b) {
     if (isInputIO(b)) return null;
+
+    // TPO: the period is a static config value, NOT stored in inputs[],
+    // so it must be shown regardless of whether the duty input below is
+    // a fixed value or a block link — unlike the generic loop further
+    // down, which only ever summarizes fixed inputs.
+    if (isTpoBlock(b)) {
+      final parts = <String>[];
+      final duty = b.inputs[0];
+      if (duty != null && duty.type == InputSourceType.constant) {
+        final value = duty.constant ?? 0;
+        final display = value == value.roundToDouble()
+            ? value.toInt().toString()
+            : value.toString();
+        parts.add('Duty: $display%');
+      }
+      parts.add('Período: ${b.tpoPeriodMs.toInt()}ms');
+      return parts.join(' · ');
+    }
 
     final parts = <String>[];
 
@@ -886,11 +949,12 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   // echoed back via 'logic_get'. Compares by block id (order doesn't
   // matter) and only the fields that affect actual behavior — 'lg' is
   // deliberately excluded since it's a cosmetic, app-only field (see the
-  // big AND/OR/NOT comment above) the firmware may not echo. 'pid' is
-  // also not compared here: since the firmware doesn't parse/echo it
-  // yet, including it would make every PID-containing program report as
-  // "doesn't match" even once BLOCK_PID exists, unless the firmware's
-  // logic_get echoes the exact same JSON it received.
+  // big AND/OR/NOT comment above). 'pid' and 'tpo' are also not compared
+  // here for the same "cosmetic vs. behavioral" boundary: their actual
+  // effect is already captured indirectly through 'in' (the live duty
+  // signal for TPO, enable/PV/SP for PID) — comparing the raw config
+  // objects too would just make the check stricter without catching any
+  // failure mode the core keys don't already catch.
   // ---------------------------------------------------------------------
   bool _logicMatchesSent(Map<String, dynamic> received) {
     if (_lastSentBlocksJson == null) return false;
@@ -1209,7 +1273,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         }
         // no output required
       }
-      // PROCESSING BLOCK (math / compare / timer / pid)
+      // PROCESSING BLOCK (math / compare / timer / pid / tpo)
       else {
         // TIMER
         if (b.type == BlockType.timer) {
@@ -1231,8 +1295,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             continue;
           }
         }
-        // OTHERS (math / compare / pid — pid falls here too, since it's
-        // neither IO nor Timer; its 3 inputs (enable/PV/setpoint) are
+        // OTHERS (math / compare / pid / tpo — pid and tpo fall here
+        // too, since neither is IO nor Timer; their signal inputs are
         // all required by the generic loop below, same as math's A/B).
         else {
           for (int i = 0; i < b.maxInputs; i++) {
@@ -1246,7 +1310,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           }
 
           // ---------------------------------------------------------
-          // NEW: PID semantic validation (Enable vs PV wiring).
+          // PID semantic validation (Enable vs PV wiring).
           //
           // The auto-routing in the linking handler (see
           // _pidTargetIndexForSource) prevents this mistake for links
@@ -1282,6 +1346,29 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             }
           }
 
+          // ---------------------------------------------------------
+          // TPO semantic validation (output must go to a DO, never AO).
+          //
+          // The linking handler (see _blockWidget) already refuses to
+          // CREATE a TPO → AO connection, but it can't fix programs
+          // wired that way before this check existed — imported from a
+          // file, loaded from an old saved backend program, etc. TPO's
+          // output is always 0/1; on an AO it would be read as 0% or
+          // 100%, never the intended proportional value.
+          // ---------------------------------------------------------
+          if (isTpoBlock(b)) {
+            for (final c in outputs) {
+              if (isOutputIO(c.to) && c.to.ioType == IOType.ao.index) {
+                errors.add(
+                  'TPO (${b.id}): saída ligada a uma saída analógica '
+                  '(AO). A saída do TPO é sempre 0 ou 1 — ligue a uma '
+                  'saída digital (DO).',
+                );
+                invalidBlocks.add(b);
+              }
+            }
+          }
+
           if (outputs.isEmpty) {
             errors.add(
               'Bloco "${b.title}" (${b.id}) não possui saída conectada',
@@ -1313,6 +1400,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     final logicJson = _buildLogicJson();
     final payload = {'type': 'logic', ...logicJson};
     print(payload);
+
+    _logicSendClickTime = DateTime.now();
+
     mqttManager.publish(
       'device/${widget.device.deviceId}/control',
       jsonEncode(payload),
@@ -1383,9 +1473,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   // a restored snapshot's `connections` list is always consistent with
   // its `blocks` list — this is what the old code was missing entirely.
   //
-  // PID tuning fields (Kp/Ki/Kd/outMin/outMax) are plain values copied
-  // along with the rest of the block's constructor args, same as
-  // ioType/ioChannel — no extra handling needed here.
+  // PID tuning fields (Kp/Ki/Kd/outMin/outMax) and TPO's period are
+  // plain values copied along with the rest of the block's constructor
+  // args, same as ioType/ioChannel — no extra handling needed here.
   // ---------------------------------------------------------------------
   _EditorSnapshot _takeSnapshot() {
     final idMap = <String, LogicBlock>{};
@@ -1405,6 +1495,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         pidKd: b.pidKd,
         pidOutMin: b.pidOutMin,
         pidOutMax: b.pidOutMax,
+        tpoPeriodMs: b.tpoPeriodMs,
       );
       idMap[b.id] = nb;
       newBlocks.add(nb);
@@ -1500,6 +1591,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       isLinkingMode = false;
       _inputControllers.clear();
       _pidControllers.clear();
+      _tpoControllers.clear();
 
       // VERY IMPORTANT
       _idCounter = 0;
@@ -1546,6 +1638,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                     pidKd: _clipboardBlock!.pidKd,
                     pidOutMin: _clipboardBlock!.pidOutMin,
                     pidOutMax: _clipboardBlock!.pidOutMax,
+                    tpoPeriodMs: _clipboardBlock!.tpoPeriodMs,
                   ),
                 );
               });
@@ -1614,6 +1707,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               if (blocks.isEmpty) _idCounter = 0;
               _inputControllers.remove(deleted.id);
               _pidControllers.remove(deleted.id);
+              _tpoControllers.remove(deleted.id);
               invalidBlocks.remove(deleted);
               selectedBlock = null;
             });
@@ -1794,16 +1888,22 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               _drag('Timer', Icons.timer, BlockType.timer),
             ]),
 
-            // ---------------------------------------------------------
-            // NEW: PID controller block. Unlike every other block above,
-            // BLOCK_PID is NOT implemented in the firmware yet (see the
-            // big comment on isPidBlock/_serializeBlock). Dragging this
-            // onto the canvas, configuring it, and sending it is fully
-            // safe — it just won't have any effect on the real output
-            // until logic.cpp gets a BLOCK_PID case.
-            // ---------------------------------------------------------
             _group('Controle (PID)', Colors.pinkAccent, [
               _drag('PID', Icons.tune, BlockType.pid),
+            ]),
+
+            // ---------------------------------------------------------
+            // NEW: TPO (time-proportioning output) block. Converts a
+            // continuous 0-100 duty cycle — typically the output of a
+            // PID block above — into a discrete on/off signal for
+            // actuators that can only switch, such as an SSR driving a
+            // resistive heater. Feed its output into a DO block only,
+            // never an AO (see isTpoBlock / the linking guard in
+            // _blockWidget and the compile-time check in
+            // _compileAndSend).
+            // ---------------------------------------------------------
+            _group('Saída Temporizada (TPO/SSR)', Colors.deepOrangeAccent, [
+              _drag('TPO (SSR)', Icons.power_settings_new, BlockType.tpo),
             ]),
           ],
         ),
@@ -1936,6 +2036,13 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                   newBlock.inputs[0] = InputSource.constant(1); // enable
                   newBlock.inputs[2] = InputSource.constant(0); // setpoint
                 }
+
+                // Freshly-created TPO block: duty is deliberately left
+                // unset — it should be linked to a real signal (usually
+                // a PID's output) rather than defaulted to a constant,
+                // same rationale as PID's PV above. tpoPeriodMs already
+                // gets a sane default (10000ms) from the LogicBlock
+                // constructor.
 
                 blocks.add(newBlock);
               });
@@ -2114,16 +2221,38 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 return;
               }
 
+              // NEW: TPO's output is always 0/1. Feeding it into an AO
+              // would be read as 0% or 100%, never the intended
+              // proportional value — refuse the link at creation time,
+              // same spirit as the AI->DO guard above. (Programs already
+              // wired this way before this check existed are still
+              // caught at compile time — see _compileAndSend.)
+              if (linkingFrom!.type == BlockType.tpo &&
+                  b.type == BlockType.io &&
+                  b.ioType == IOType.ao.index) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Ligação inválida: a saída do TPO é sempre 0 ou 1 — ligue a uma saída digital (DO), não a uma saída analógica (AO)',
+                    ),
+                  ),
+                );
+                isLinkingMode = false;
+                linkingFrom = null;
+                return;
+              }
+
               // FIX: explicitly choose the destination input index by
               // block type, instead of only looking for an empty slot
               // (which used to fail whenever the slot already had a
               // fixed value typed in, like "PWM: 50%" — indexWhere would
               // never find null and the link was silently dropped).
               //
-              // - AO/DO (output) and the Timer trigger: ALWAYS index 0,
-              //   because that's the only index the firmware actually
-              //   reads (getInputValue(b.inputs[0]) in logic.cpp).
-              //   Overwrites any fixed value that was already there.
+              // - AO/DO (output), the Timer trigger, and TPO's single
+              //   duty slot: ALWAYS index 0, because that's the only
+              //   index the firmware actually reads
+              //   (getInputValue(b.inputs[0]) in logic.cpp). Overwrites
+              //   any fixed value that was already there.
               // - NOT gate: always index 1 (the B input) — the A input
               //   is locked to 1 by the UI itself.
               // - PID: routed by the SOURCE block's IO type (AI -> PV,
@@ -2136,7 +2265,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               //   value), overwrites the first one that only had a
               //   constant instead of silently doing nothing.
               int idx;
-              if (isOutputIO(b) || b.type == BlockType.timer) {
+              if (isOutputIO(b) ||
+                  b.type == BlockType.timer ||
+                  b.type == BlockType.tpo) {
                 idx = 0;
               } else if (isNotGate(b)) {
                 idx = 1;
@@ -2189,8 +2320,30 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           });
         },
 
+        // NEW: dragging a block to a new position is now undoable.
+        // onPanStart fires exactly once per drag gesture, so the
+        // pre-move snapshot is pushed a single time here — onPanUpdate
+        // (below) fires repeatedly during the same gesture and must NOT
+        // push another snapshot each time, or Ctrl+Z would only undo a
+        // few pixels of movement instead of the whole drag.
+        onPanStart: (_) {
+          _pushUndo();
+          _dragSnapshotPushed = true;
+        },
+
         onPanUpdate: (d) {
+          // Safety net: onPanUpdate normally never fires without a prior
+          // onPanStart, but if it ever does, still record the move so it
+          // can be undone.
+          if (!_dragSnapshotPushed) {
+            _pushUndo();
+            _dragSnapshotPushed = true;
+          }
           setState(() => b.position += d.delta);
+        },
+
+        onPanEnd: (_) {
+          _dragSnapshotPushed = false;
         },
 
         child: Tooltip(
@@ -2400,6 +2553,51 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     );
   }
 
+  // ---------------------------------------------------------------------
+  // TPO period controller, kept separate from _inputControllers/
+  // _pidControllers for the same reason as the PID gains above: it maps
+  // directly to LogicBlock.tpoPeriodMs, not to inputs[].
+  // ---------------------------------------------------------------------
+  final Map<String, List<TextEditingController>> _tpoControllers = {};
+
+  List<TextEditingController> _tpoControllersFor(LogicBlock b) {
+    return _tpoControllers.putIfAbsent(
+      b.id,
+      () => [TextEditingController(text: b.tpoPeriodMs.toString())],
+    );
+  }
+
+  Widget _tpoConfigEditor(LogicBlock b) {
+    final ctrls = _tpoControllersFor(b);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: ctrls[0],
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'Período (ms)',
+            hintText: 'Duração total do ciclo liga+desliga',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFF1A1A1A),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onChanged: (v) {
+            final parsed = double.tryParse(v);
+            // Reject 0/negative: a zero-length cycle divides by nothing
+            // useful and the firmware would just spin the on/off check
+            // every scan for no reason.
+            if (parsed != null && parsed > 0) {
+              setState(() => b.tpoPeriodMs = parsed);
+            }
+          },
+        ),
+      ],
+    );
+  }
+
   Widget _inputEditor(LogicBlock b, int index) {
     final input = b.inputs[index];
 
@@ -2423,6 +2621,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     final isPidEnableField = isPidEnable(b, index);
     final isPidPVField = isPidPV(b, index);
     final isPidSetpointField = isPidSetpoint(b, index);
+    final isTpoDutyField = isTpoDuty(b, index);
 
     String labelText;
     String hintText;
@@ -2444,6 +2643,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     } else if (isPidSetpointField) {
       labelText = 'Setpoint';
       hintText = 'Valor desejado';
+    } else if (isTpoDutyField) {
+      labelText = 'Duty cycle (%)';
+      hintText = '0 a 100 — normalmente ligado à saída do PID';
     } else {
       labelText = 'Entrada ${_inputShortLabel(b, index)}';
       hintText = 'Valor fixo';
@@ -2454,7 +2656,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
     // constants — they must never be blocked by the "only one constant
     // per block" rule used for math/compare's shared A/B pair, since
     // each of them is an independent configuration value rather than a
-    // shared slot.
+    // shared slot. TPO doesn't need this bypass at all: it only ever has
+    // one input slot (index 0), so the "shared slot" rule can never
+    // trigger for it in the first place.
     final bypassSharedConstantRule = isTimeField || isPidBlock(b);
     final alreadyHasConstant = bypassSharedConstantRule
         ? false
@@ -2493,9 +2697,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                   } else {
                     double value = double.tryParse(v) ?? 0;
 
-                    // Clamp the PWM duty cycle to a valid 0-100% range so
-                    // an out-of-range typo can't be sent to the device.
-                    if (isAoPercent) {
+                    // Clamp the PWM duty cycle (AO) and the TPO duty
+                    // cycle to a valid 0-100% range so an out-of-range
+                    // typo can't be sent to the device.
+                    if (isAoPercent || isTpoDutyField) {
                       value = value.clamp(0, 100);
                     }
 
@@ -2587,16 +2792,18 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
         const Divider(height: 24),
 
-        // Analog output (AO/PWM), Timer, and PID blocks all get their
-        // fixed-value editor(s) rendered here too, not just math/compare.
-        // Timer shows both slots (trigger + time); PID shows its three
-        // slots (enable/PV/setpoint) plus the gains editor right below.
-        // AND/OR/NOT gates are also BlockType.math, so they fall into
-        // this same block of code.
+        // Analog output (AO/PWM), Timer, PID, and TPO blocks all get
+        // their fixed-value editor(s) rendered here too, not just math/
+        // compare. Timer shows both slots (trigger + time); PID shows
+        // its three slots (enable/PV/setpoint) plus the gains editor
+        // right below; TPO shows its single duty slot plus the period
+        // editor right below. AND/OR/NOT gates are also BlockType.math,
+        // so they fall into this same block of code.
         if (b.type == BlockType.math ||
             b.type == BlockType.compare ||
             b.type == BlockType.timer ||
             isPidBlock(b) ||
+            isTpoBlock(b) ||
             isAnalogOutput(b)) ...[
           Text(
             isAnalogOutput(b)
@@ -2605,6 +2812,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 ? 'Gatilho e tempo'
                 : isPidBlock(b)
                 ? 'Entradas do PID (Habilita / PV / Setpoint)'
+                : isTpoBlock(b)
+                ? 'Entrada do TPO (duty cycle)'
                 : isNotGate(b)
                 ? 'Porta NÃO (inversora)'
                 : 'Entradas (valores fixos)',
@@ -2622,6 +2831,16 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             ),
             const SizedBox(height: 8),
             _pidGainsEditor(b),
+          ],
+
+          if (isTpoBlock(b)) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Configuração do ciclo',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            _tpoConfigEditor(b),
           ],
 
           const Divider(height: 24),
@@ -2675,6 +2894,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 if (blocks.isEmpty) _idCounter = 0;
                 _inputControllers.remove(b.id);
                 _pidControllers.remove(b.id);
+                _tpoControllers.remove(b.id);
                 invalidBlocks.remove(b);
                 selectedBlock = null;
               });

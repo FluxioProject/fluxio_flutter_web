@@ -35,6 +35,12 @@ class LogicBlock {
     this.pidKd = 0.0,
     this.pidOutMin = 0.0,
     this.pidOutMax = 100.0,
+    // TPO-only config. Same rationale as the PID fields above: a static
+    // config value the firmware reads once from a dedicated 'tpo' JSON
+    // object, not a live signal. Default matches BLOCK_TPO's firmware
+    // default (10s) so a freshly-dropped block already compiles with a
+    // sane cycle length even before the user touches it.
+    this.tpoPeriodMs = 10000.0,
   }) {
     inputs = List.generate(maxInputs, (_) => null);
   }
@@ -55,6 +61,10 @@ class LogicBlock {
   double pidOutMin;
   double pidOutMax;
 
+  // TPO cycle period, in ms — see comment above. Mutable for the same
+  // reason as the PID fields.
+  double tpoPeriodMs;
+
   late List<InputSource?> inputs;
 
   int get maxInputs {
@@ -70,6 +80,12 @@ class LogicBlock {
       // inputs[], since they are tuning parameters rather than signals.
       case BlockType.pid:
         return 3;
+      // TPO has a single signal input: duty cycle (0-100%), typically
+      // fed straight from a PID's output. The cycle period is
+      // configured separately above (tpoPeriodMs), same rationale as
+      // PID's gains — it's a static config value, not a live signal.
+      case BlockType.tpo:
+        return 1;
       default:
         return 1;
     }

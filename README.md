@@ -29,7 +29,7 @@ flutter run -d chrome --dart-define-from-file=config.local.json
 Build for web with:
 
 ```powershell
-flutter build web --dart-define-from-file=config.local.json
+flutter build web --dart-define-from-file=config.local.json --pwa-strategy=none  
 ```
 
 Important: Flutter Web bundles compile-time values into the generated
