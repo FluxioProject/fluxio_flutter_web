@@ -518,12 +518,12 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                   _checkingLatest
                       ? 'Verificando versão atual...'
                       : _latestVersion != null
-                      ? 'Versão atual do dispositivo: v$_latestVersion'
+                      ? 'Versão atual: v$_latestVersion'
                       : 'Nenhum firmware enviado ainda para este device',
                   style: const TextStyle(fontSize: 12, color: Colors.white54),
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 12),
               TextField(
                 controller: _versionCtrl,
                 enabled: !uploading,

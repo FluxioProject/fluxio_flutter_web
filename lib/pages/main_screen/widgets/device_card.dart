@@ -200,6 +200,9 @@ class DeviceCard extends StatelessWidget {
     final uptimeLabel = device.uptimeSec != null
         ? 'Uptime ${_formatUptime(device.uptimeSec!)}'
         : 'Uptime N/D';
+    final ipLabel = device.ipAddress?.isNotEmpty == true
+        ? 'IP ${device.ipAddress}'
+        : 'IP N/D';
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
@@ -259,6 +262,7 @@ class DeviceCard extends StatelessWidget {
                       _chip(label: statusLabel, color: statusColor, dot: true),
                       _chip(label: fwLabel, color: Colors.white60),
                       _chip(label: uptimeLabel, color: Colors.white60),
+                      _chip(label: ipLabel, color: Colors.white60),
                     ],
                   ),
                 ],
