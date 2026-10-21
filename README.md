@@ -67,3 +67,29 @@ Run tests:
 ```powershell
 flutter test
 ```
+
+## Deployment
+
+`.github/workflows/firebase-hosting.yml` builds and deploys to Firebase
+Hosting (project `tcc2026-7d3c4`):
+
+- Every pull request gets a preview URL, valid for 7 days and posted as a
+  comment on the PR.
+- Every push to `master` deploys to production.
+
+The workflow needs two repository secrets (Settings > Secrets and variables >
+Actions):
+
+- `FLUXIO_API_KEY`: the same value used in `config.local.json`.
+- `FIREBASE_SERVICE_ACCOUNT_TCC2026_7D3C4`: JSON key of a Google Cloud service
+  account with the Firebase Hosting Admin, Cloud Run Viewer and API Keys
+  Viewer roles. `firebase init hosting:github` creates this account and secret
+  automatically; answer "no" when it offers to write workflow files, since
+  this one already exists.
+
+Manual deploy, if ever needed:
+
+```powershell
+flutter build web --dart-define-from-file=config.local.json --pwa-strategy=none
+firebase deploy --only hosting
+```
