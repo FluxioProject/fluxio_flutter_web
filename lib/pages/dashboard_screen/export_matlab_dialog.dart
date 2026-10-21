@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/models/channel_config.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/widgets/graph.dart';
 
@@ -313,7 +314,10 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: Text(
             title,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              fontSize: AppFontSize.md,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         const Divider(height: 8),
@@ -327,7 +331,7 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
               hasData
                   ? '${c.points.length} pontos'
                   : 'Sem dados no buffer atual',
-              style: const TextStyle(fontSize: 11),
+              style: const TextStyle(fontSize: AppFontSize.xs),
             ),
             value: _selectedKeys.contains(c.key),
             onChanged: !hasData
@@ -416,11 +420,12 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
           child: const Text('Cancelar'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color.fromARGB(255, 63, 146, 66),
-          ),
+          style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
           onPressed: _hasAnySelection ? _export : null,
-          child: const Text('Exportar', style: TextStyle(color: Colors.white)),
+          child: const Text(
+            'Exportar',
+            style: TextStyle(color: AppColors.foreground),
+          ),
         ),
       ],
     );

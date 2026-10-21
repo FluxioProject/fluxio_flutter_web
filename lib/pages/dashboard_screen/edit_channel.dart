@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/backend_api/api_communication.dart';
 import 'package:tcc_flutter/services/mqtt_manager.dart';
 import 'package:tcc_flutter/widgets/show_message.dart';
@@ -92,7 +93,7 @@ Future<void> showEditChannelDialog({
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.white, width: 1),
+        border: Border.all(color: AppColors.foreground, width: 1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: CheckboxListTile(
@@ -111,9 +112,9 @@ Future<void> showEditChannelDialog({
       child: Text(
         text,
         style: const TextStyle(
-          fontSize: 15,
+          fontSize: AppFontSize.base,
           fontWeight: FontWeight.w600,
-          color: Colors.white70,
+          color: AppColors.foregroundSecondary,
         ),
       ),
     );
@@ -159,9 +160,9 @@ Future<void> showEditChannelDialog({
                   Text(
                     'Unidade',
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: AppFontSize.md,
                       fontWeight: FontWeight.w600,
-                      color: Colors.white70,
+                      color: AppColors.foregroundSecondary,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -179,7 +180,9 @@ Future<void> showEditChannelDialog({
                             Text(
                               u,
                               style: TextStyle(
-                                color: selected ? Colors.white : Colors.white70,
+                                color: selected
+                                    ? AppColors.foreground
+                                    : AppColors.foregroundSecondary,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -191,12 +194,12 @@ Future<void> showEditChannelDialog({
                             unitCtrl.text = u;
                           });
                         },
-                        selectedColor: const Color.fromARGB(255, 63, 146, 66),
+                        selectedColor: AppColors.primary,
                         backgroundColor: Colors.transparent,
                         side: BorderSide(
                           color: selected
-                              ? const Color.fromARGB(255, 63, 146, 66)
-                              : Colors.white24,
+                              ? AppColors.primary
+                              : AppColors.lineStrong,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
@@ -250,9 +253,9 @@ Future<void> showEditChannelDialog({
                     Text(
                       'Alertas quando sair da faixa',
                       style: const TextStyle(
-                        fontSize: 15,
+                        fontSize: AppFontSize.base,
                         fontWeight: FontWeight.w600,
-                        color: Colors.white70,
+                        color: AppColors.foregroundSecondary,
                       ),
                     ),
                     SizedBox(width: 6),
@@ -342,9 +345,7 @@ Future<void> showEditChannelDialog({
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color.fromARGB(255, 63, 146, 66),
-            ),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
             onPressed: () {
               channel
                 ..name = nameCtrl.text.trim().isEmpty
@@ -424,7 +425,10 @@ Future<void> showEditChannelDialog({
 
               Navigator.pop(ctx);
             },
-            child: const Text('Salvar', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Salvar',
+              style: TextStyle(color: AppColors.foreground),
+            ),
           ),
         ],
       ),

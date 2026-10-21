@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 
 void showMessage(BuildContext context, String message, bool error) {
   final overlay = Overlay.of(context);
@@ -43,7 +44,7 @@ class _AnimatedMessageState extends State<_AnimatedMessage>
   late Animation<double> _scale;
   late Animation<double> _fade;
 
-  Color get _color => widget.error ? Colors.redAccent : Colors.greenAccent;
+  Color get _color => widget.error ? AppColors.danger : AppColors.accent;
 
   IconData get _icon =>
       widget.error ? Icons.error_outline : Icons.check_circle_outline;
@@ -86,12 +87,12 @@ class _AnimatedMessageState extends State<_AnimatedMessage>
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
             decoration: BoxDecoration(
-              color: const Color(0xFF141A17),
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: _color.withOpacity(0.6)),
               boxShadow: const [
                 BoxShadow(
-                  color: Colors.black45,
+                  color: AppColors.shadowSoft,
                   blurRadius: 16,
                   offset: Offset(0, 8),
                 ),
@@ -113,7 +114,10 @@ class _AnimatedMessageState extends State<_AnimatedMessage>
                 Expanded(
                   child: Text(
                     widget.message,
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    style: const TextStyle(
+                      color: AppColors.foreground,
+                      fontSize: AppFontSize.lg,
+                    ),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                   ),

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cross_file/cross_file.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:tcc_flutter/backend_api/api_communication.dart';
@@ -150,7 +151,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
               title: const Text(
                 'Aviso importante',
                 style: TextStyle(
-                  color: Colors.greenAccent,
+                  color: AppColors.accent,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -162,21 +163,21 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                 'Um firmware incompatível pode tornar o dispositivo inacessível '
                 'ou inutilizável.\n\n'
                 'Deseja continuar?',
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(color: AppColors.foregroundSecondary),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
                   child: const Text(
                     'Cancelar',
-                    style: TextStyle(color: Colors.white70),
+                    style: TextStyle(color: AppColors.foregroundSecondary),
                   ),
                 ),
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context, true),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.greenAccent,
-                    foregroundColor: Colors.black,
+                    backgroundColor: AppColors.accent,
+                    foregroundColor: AppColors.onAccent,
                   ),
                   child: const Text('Entendi, continuar'),
                 ),
@@ -447,7 +448,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
               const Icon(
                 Icons.system_update_alt,
                 size: 48,
-                color: Colors.greenAccent,
+                color: AppColors.accent,
               ),
 
               const SizedBox(height: 12),
@@ -455,9 +456,9 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
               const Text(
                 'Atualização de Firmware',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: AppFontSize.xl,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: AppColors.foreground,
                 ),
               ),
 
@@ -466,7 +467,10 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
               const Text(
                 'Selecione ou arraste um arquivo de firmware para atualizar o dispositivo.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.white70),
+                style: TextStyle(
+                  fontSize: AppFontSize.base,
+                  color: AppColors.foregroundSecondary,
+                ),
               ),
 
               const SizedBox(height: 12),
@@ -481,9 +485,9 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.blueAccent.withOpacity(0.1),
+                  color: AppColors.info.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                  border: Border.all(color: AppColors.info.withOpacity(0.3)),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -491,7 +495,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                     const Icon(
                       Icons.info_outline,
                       size: 16,
-                      color: Colors.lightBlueAccent,
+                      color: AppColors.info,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -500,8 +504,8 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                         'aplicado automaticamente assim que ele se conectar '
                         '(seja agora ou na próxima vez que for ligado).',
                         style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.lightBlueAccent.withOpacity(0.9),
+                          fontSize: AppFontSize.sm,
+                          color: AppColors.info.withOpacity(0.9),
                         ),
                       ),
                     ),
@@ -520,7 +524,10 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                       : _latestVersion != null
                       ? 'Versão atual: v$_latestVersion'
                       : 'Nenhum firmware enviado ainda para este device',
-                  style: const TextStyle(fontSize: 12, color: Colors.white54),
+                  style: const TextStyle(
+                    fontSize: AppFontSize.sm,
+                    color: AppColors.foregroundMuted,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -532,12 +539,14 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                     setState(() => versionError = null);
                   }
                 },
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: AppColors.foreground),
                 decoration: InputDecoration(
                   labelText: 'Versão do firmware (ex: 1.0.0)',
-                  labelStyle: const TextStyle(color: Colors.white54),
+                  labelStyle: const TextStyle(color: AppColors.foregroundMuted),
                   prefixText: 'v',
-                  prefixStyle: const TextStyle(color: Colors.white70),
+                  prefixStyle: const TextStyle(
+                    color: AppColors.foregroundSecondary,
+                  ),
                   errorText: versionError,
                   border: const OutlineInputBorder(),
                   isDense: true,
@@ -561,26 +570,25 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
                         color: _dragging
-                            ? Colors.greenAccent
-                            : Colors.greenAccent.withOpacity(0.6),
+                            ? AppColors.accent
+                            : AppColors.accent.withOpacity(0.6),
                         width: _dragging ? 2 : 1,
                       ),
                       color: _dragging
-                          ? Colors.greenAccent.withOpacity(0.12)
-                          : Colors.white10,
+                          ? AppColors.accent.withOpacity(0.12)
+                          : AppColors.border,
                     ),
                     child: Row(
                       children: [
-                        const Icon(
-                          Icons.upload_file,
-                          color: Colors.greenAccent,
-                        ),
+                        const Icon(Icons.upload_file, color: AppColors.accent),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             selectedFileName ??
                                 'Arraste o arquivo aqui ou clique para selecionar (.bin, .hex, .uf2)',
-                            style: const TextStyle(color: Colors.white70),
+                            style: const TextStyle(
+                              color: AppColors.foregroundSecondary,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -594,7 +602,10 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                 const SizedBox(height: 8),
                 Text(
                   error!,
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                  style: const TextStyle(
+                    color: AppColors.danger,
+                    fontSize: AppFontSize.sm,
+                  ),
                 ),
               ],
 
@@ -611,9 +622,9 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                     ? null
                     : 0.0,
                 minHeight: 10,
-                backgroundColor: Colors.white12,
+                backgroundColor: AppColors.divider,
                 valueColor: const AlwaysStoppedAnimation<Color>(
-                  Colors.greenAccent,
+                  AppColors.accent,
                 ),
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -631,7 +642,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                     : progress >= 1.0
                     ? 'Atualização confirmada com sucesso'
                     : 'Aguardando envio',
-                style: const TextStyle(color: Colors.white70),
+                style: const TextStyle(color: AppColors.foregroundSecondary),
               ),
 
               const SizedBox(height: 24),
@@ -644,15 +655,15 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog> {
                     onPressed: uploading ? null : () => Navigator.pop(context),
                     child: const Text(
                       'Fechar',
-                      style: TextStyle(color: Colors.white70),
+                      style: TextStyle(color: AppColors.foregroundSecondary),
                     ),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
                     onPressed: uploading ? null : _startUpload,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.greenAccent,
-                      foregroundColor: Colors.black,
+                      backgroundColor: AppColors.accent,
+                      foregroundColor: AppColors.onAccent,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
