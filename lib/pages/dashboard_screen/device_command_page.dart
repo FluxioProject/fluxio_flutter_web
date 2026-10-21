@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/models/device.dart';
 import 'package:tcc_flutter/models/channel_config.dart';
 import 'package:tcc_flutter/models/telemetry.dart';
@@ -252,10 +251,7 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
           SizedBox(width: 6),
           Text(
             'Enviando...',
-            style: TextStyle(
-              fontSize: AppFontSize.sm,
-              color: AppColors.foregroundMuted,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.white54),
           ),
         ],
       );
@@ -265,11 +261,11 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
       return const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.error_outline, size: 14, color: AppColors.danger),
+          Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
           SizedBox(width: 4),
           Text(
             'Sem confirmação do dispositivo — tente novamente',
-            style: TextStyle(fontSize: AppFontSize.sm, color: AppColors.danger),
+            style: TextStyle(fontSize: 12, color: Colors.redAccent),
           ),
         ],
       );
@@ -279,14 +275,11 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
       return const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.edit, size: 13, color: AppColors.warning),
+          Icon(Icons.edit, size: 13, color: Colors.orangeAccent),
           SizedBox(width: 4),
           Text(
             'Alterado — clique em "Enviar valor"',
-            style: TextStyle(
-              fontSize: AppFontSize.sm,
-              color: AppColors.warning,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.orangeAccent),
           ),
         ],
       );
@@ -299,7 +292,7 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: AppColors.surfaceHigh,
+        backgroundColor: const Color.fromARGB(255, 35, 35, 35),
         title: Text(
           'Enviar comandos   -   ${widget.device.name} (${widget.device.deviceId})',
         ),
@@ -347,21 +340,21 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.warning.withOpacity(0.12),
+        color: Colors.orange.withOpacity(0.12),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.warning),
+        border: Border.all(color: Colors.orangeAccent),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: const [
-          Icon(Icons.warning_amber_rounded, color: AppColors.warning),
+          Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
           SizedBox(width: 10),
           Expanded(
             child: Text(
               'Esta área permite o envio manual de comandos ao dispositivo.\n'
               'Use apenas se souber exatamente o que está fazendo.\n'
               'A responsabilidade pelo uso é inteiramente do operador.',
-              style: TextStyle(fontSize: AppFontSize.base),
+              style: TextStyle(fontSize: 14),
             ),
           ),
         ],
@@ -379,7 +372,7 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
         );
 
         return Card(
-          color: AppColors.surface,
+          color: const Color(0xFF1B1B1B),
           margin: const EdgeInsets.symmetric(vertical: 6),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
@@ -412,7 +405,7 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
         );
 
         return Card(
-          color: AppColors.surface,
+          color: const Color(0xFF1B1B1B),
           margin: const EdgeInsets.symmetric(vertical: 8),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
@@ -422,7 +415,7 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(c.name, style: const TextStyle(fontSize: AppFontSize.lg)),
+                Text(c.name, style: const TextStyle(fontSize: 16)),
                 const SizedBox(height: 8),
 
                 Row(
@@ -489,9 +482,7 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
                   alignment: Alignment.centerRight,
                   child: Text(
                     '${aoValues[i].toStringAsFixed(c.decimals)} ${c.unit}',
-                    style: const TextStyle(
-                      color: AppColors.foregroundSecondary,
-                    ),
+                    style: const TextStyle(color: Colors.white70),
                   ),
                 ),
 
@@ -502,8 +493,8 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
                 ElevatedButton.icon(
                   style: FilledButton.styleFrom(
                     backgroundColor: pending
-                        ? AppColors.disabled
-                        : AppColors.primary,
+                        ? const Color.fromARGB(255, 90, 90, 90)
+                        : const Color.fromARGB(255, 63, 146, 66),
                   ),
                   onPressed: pending ? null : () => _sendAoValue(i),
                   icon: pending
@@ -512,13 +503,13 @@ class _DeviceCommandPageState extends State<DeviceCommandPage> {
                           height: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: AppColors.foregroundSecondary,
+                            color: Colors.white70,
                           ),
                         )
                       : const Icon(Icons.send),
                   label: Text(
                     pending ? 'Enviando...' : 'Enviar valor',
-                    style: const TextStyle(color: AppColors.foreground),
+                    style: const TextStyle(color: Colors.white),
                   ),
                 ),
               ],

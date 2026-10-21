@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/config/app_config.dart';
-import 'package:tcc_flutter/routing/app_router.dart';
+import 'package:tcc_flutter/pages/main_screen/cards_page.dart';
+import 'package:tcc_flutter/pages/first_screens/create_account.dart';
+import 'package:tcc_flutter/pages/first_screens/forgot_password.dart';
 import 'package:tcc_flutter/services/app_state.dart';
 import 'package:tcc_flutter/widgets/gradient_bg.dart';
 import 'package:tcc_flutter/widgets/show_message.dart';
@@ -44,13 +44,17 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _loading = true);
 
     try {
-      // On success the router redirects to the device list (or to the
-      // page the user tried to open before logging in).
       await appState.login(email, password, context);
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const CardsPage()),
+      );
     } catch (e) {
       print("API KEY FLUTTER: '${AppConfig.apiKey}'");
       print("TAMANHO: ${AppConfig.apiKey.length}");
-      if (!mounted) return;
       showMessage(
         context,
         e.toString().replaceAll('Exception:', '').trim(),
@@ -73,12 +77,10 @@ class _LoginPageState extends State<LoginPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Card(
                 elevation: 14,
-                shadowColor: AppColors.shadow,
+                shadowColor: Colors.black54,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(
-                    color: AppColors.foreground.withOpacity(0.08),
-                  ),
+                  side: BorderSide(color: Colors.white.withOpacity(0.08)),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(28, 28, 28, 22),
@@ -93,16 +95,13 @@ class _LoginPageState extends State<LoginPage> {
                         height: 100,
                       ),
                       const SizedBox(height: 10),
-                      Divider(color: AppColors.foreground.withOpacity(0.08)),
+                      Divider(color: Colors.white.withOpacity(0.08)),
                       const SizedBox(height: 18),
 
                       // Email
                       const Text(
                         'E-mail',
-                        style: TextStyle(
-                          fontSize: AppFontSize.sm,
-                          color: AppColors.foregroundSecondary,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
                       ),
                       const SizedBox(height: 8),
                       TextField(
@@ -114,7 +113,7 @@ class _LoginPageState extends State<LoginPage> {
                           hintText: 'seuemail@dominio.com',
                           prefixIcon: const Icon(Icons.mail_outline),
                           filled: true,
-                          fillColor: AppColors.foreground.withOpacity(0.06),
+                          fillColor: Colors.white.withOpacity(0.06),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 14,
@@ -127,10 +126,7 @@ class _LoginPageState extends State<LoginPage> {
                       // Password
                       const Text(
                         'Senha',
-                        style: TextStyle(
-                          fontSize: AppFontSize.sm,
-                          color: AppColors.foregroundSecondary,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
                       ),
                       const SizedBox(height: 8),
                       TextField(
@@ -156,7 +152,7 @@ class _LoginPageState extends State<LoginPage> {
                             },
                           ),
                           filled: true,
-                          fillColor: AppColors.foreground.withOpacity(0.06),
+                          fillColor: Colors.white.withOpacity(0.06),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 14,
@@ -170,15 +166,21 @@ class _LoginPageState extends State<LoginPage> {
                       Row(
                         children: [
                           TextButton(
-                            onPressed: () =>
-                                context.go(AppRoutes.forgotPassword),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ForgotPasswordPage(),
+                                ),
+                              );
+                            },
                             style: TextButton.styleFrom(
-                              foregroundColor: AppColors.foregroundSecondary,
+                              foregroundColor: Colors.white70,
                               padding: EdgeInsets.zero,
                             ),
                             child: const Text(
                               'Esqueci minha senha',
-                              style: TextStyle(fontSize: AppFontSize.base),
+                              style: TextStyle(fontSize: 14),
                             ),
                           ),
                           const Spacer(),
@@ -193,8 +195,13 @@ class _LoginPageState extends State<LoginPage> {
                         child: ElevatedButton(
                           onPressed: _loading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.accent,
-                            foregroundColor: AppColors.onAccent,
+                            backgroundColor: const Color.fromARGB(
+                              255,
+                              57,
+                              194,
+                              128,
+                            ),
+                            foregroundColor: Colors.black,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -205,7 +212,7 @@ class _LoginPageState extends State<LoginPage> {
                                   height: 22,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: AppColors.onAccent,
+                                    color: Colors.black,
                                   ),
                                 )
                               : const Row(
@@ -216,7 +223,7 @@ class _LoginPageState extends State<LoginPage> {
                                     Text(
                                       'Entrar',
                                       style: TextStyle(
-                                        fontSize: AppFontSize.lg,
+                                        fontSize: 16,
                                         fontWeight: FontWeight.w800,
                                       ),
                                     ),
@@ -234,20 +241,27 @@ class _LoginPageState extends State<LoginPage> {
                           const Text(
                             'Não tem conta?',
                             style: TextStyle(
-                              color: AppColors.foregroundSecondary,
-                              fontSize: AppFontSize.base,
+                              color: Colors.white70,
+                              fontSize: 14,
                             ),
                           ),
                           TextButton(
-                            onPressed: () => context.go(AppRoutes.register),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const RegisterPage(),
+                                ),
+                              );
+                            },
                             style: TextButton.styleFrom(
-                              foregroundColor: AppColors.accent,
+                              foregroundColor: Colors.greenAccent,
                             ),
                             child: const Text(
                               'Criar conta',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
-                                fontSize: AppFontSize.base,
+                                fontSize: 14,
                               ),
                             ),
                           ),

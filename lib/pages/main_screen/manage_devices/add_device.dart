@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:tcc_flutter/models/device.dart';
-import 'package:tcc_flutter/theme/app_theme.dart';
 
 class AddDeviceDialog extends StatefulWidget {
   const AddDeviceDialog({super.key});
@@ -89,11 +88,10 @@ class _AddDeviceDialogState extends State<AddDeviceDialog> {
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text(
-            'Adicionar',
-            style: TextStyle(color: AppColors.foreground),
+          child: const Text('Adicionar', style: TextStyle(color: Colors.white)),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color.fromARGB(255, 63, 146, 66),
           ),
-          style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
         ),
       ],
     );

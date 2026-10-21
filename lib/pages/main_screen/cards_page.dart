@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tcc_flutter/backend_api/api_communication.dart';
 import 'package:tcc_flutter/models/channel_config.dart';
 import 'package:tcc_flutter/pages/main_screen/manage_devices/add_device.dart';
+import 'package:tcc_flutter/pages/first_screens/login.dart';
 import 'package:tcc_flutter/pages/main_screen/manage_user/edit_account.dart';
 import 'package:tcc_flutter/pages/main_screen/widgets/device_card.dart';
 import 'package:tcc_flutter/models/device.dart';
@@ -239,7 +239,7 @@ class _CardsPageState extends State<CardsPage> {
             value: channel.visible,
             onChanged: (v) => setLocal(() => channel.visible = v ?? true),
           ),
-          const Text('Visível', style: TextStyle(fontSize: AppFontSize.sm)),
+          const Text('Visível', style: TextStyle(fontSize: 12)),
         ],
       ),
     );
@@ -259,9 +259,9 @@ class _CardsPageState extends State<CardsPage> {
           Text(
             title,
             style: const TextStyle(
-              fontSize: AppFontSize.md,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppColors.foregroundSecondary,
+              color: Colors.white70,
             ),
           ),
           const SizedBox(height: 8),
@@ -399,8 +399,8 @@ class _CardsPageState extends State<CardsPage> {
                     const Text(
                       'Não foi possível carregar os canais deste dispositivo.',
                       style: TextStyle(
-                        color: AppColors.warning,
-                        fontSize: AppFontSize.sm,
+                        color: Colors.orangeAccent,
+                        fontSize: 12,
                       ),
                     ),
                   ] else ...[
@@ -409,7 +409,7 @@ class _CardsPageState extends State<CardsPage> {
                       'Canais',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: AppFontSize.base,
+                        fontSize: 15,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -448,11 +448,13 @@ class _CardsPageState extends State<CardsPage> {
               child: const Text('Cancelar'),
             ),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color.fromARGB(255, 63, 146, 66),
+              ),
               onPressed: () => Navigator.pop(ctx, true),
               child: const Text(
                 'Salvar',
-                style: TextStyle(color: AppColors.foreground),
+                style: TextStyle(color: Colors.white),
               ),
             ),
           ],
@@ -571,7 +573,7 @@ class _CardsPageState extends State<CardsPage> {
     return Scaffold(
       appBar: AppBar(
         actionsPadding: EdgeInsets.only(right: 8),
-        backgroundColor: AppColors.surface,
+        backgroundColor: Color(0xFF1E1E1E),
         title: Row(
           children: [
             SizedBox(width: 8),
@@ -628,10 +630,10 @@ class _CardsPageState extends State<CardsPage> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: AppColors.foreground.withOpacity(0.18),
+                color: Colors.white.withOpacity(0.18),
                 width: 1,
               ),
-              color: AppColors.foreground.withOpacity(0.04),
+              color: Colors.white.withOpacity(0.04),
             ),
             child: TextButton.icon(
               onPressed: () async {
@@ -659,12 +661,12 @@ class _CardsPageState extends State<CardsPage> {
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
                 style: const TextStyle(
-                  fontSize: AppFontSize.lg,
+                  fontSize: 16,
                   fontWeight: FontWeight.w400,
                 ),
               ),
               style: TextButton.styleFrom(
-                foregroundColor: AppColors.foreground,
+                foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
                   vertical: 12,
@@ -682,9 +684,15 @@ class _CardsPageState extends State<CardsPage> {
           IconButton(
             tooltip: 'Logout',
             icon: const Icon(Icons.logout),
-            // The router redirects to the login page once the session is
-            // cleared.
-            onPressed: appState.logout,
+            onPressed: () {
+              appState.logout();
+
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (_) => false,
+              );
+            },
           ),
         ],
       ),
@@ -722,12 +730,17 @@ class _CardsPageState extends State<CardsPage> {
                         ),
                         FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.dangerStrong,
+                            backgroundColor: const Color.fromARGB(
+                              255,
+                              180,
+                              49,
+                              39,
+                            ),
                           ),
                           onPressed: () => Navigator.pop(ctx, true),
                           child: const Text(
                             'Excluir',
-                            style: TextStyle(color: AppColors.foreground),
+                            style: TextStyle(color: Colors.white),
                           ),
                         ),
                       ],
@@ -761,8 +774,8 @@ class _CardsPageState extends State<CardsPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.accent,
-        foregroundColor: AppColors.onAccent,
+        backgroundColor: Colors.greenAccent,
+        foregroundColor: Colors.black,
         shape: const CircleBorder(),
         onPressed: () async {
           final result = await showDialog<Map<String, String>>(

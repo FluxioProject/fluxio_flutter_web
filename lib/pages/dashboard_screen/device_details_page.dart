@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/backend_api/api_communication.dart';
-import 'package:tcc_flutter/routing/app_router.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/device_command_page.dart';
-import 'package:go_router/go_router.dart';
+import 'package:tcc_flutter/pages/dashboard_screen/drag_n_drop.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/edit_channel.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/export_matlab_dialog.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/fw_upload.dart';
@@ -526,7 +524,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       builder: (ctx) => AlertDialog(
         title: Row(
           children: const [
-            Icon(Icons.warning_amber_rounded, color: AppColors.warning),
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
             SizedBox(width: 8),
             Text('Atenção'),
           ],
@@ -543,11 +541,13 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color.fromARGB(255, 63, 146, 66),
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text(
               'Entendi, continuar',
-              style: TextStyle(color: AppColors.foreground),
+              style: TextStyle(color: Colors.white),
             ),
           ),
         ],
@@ -638,7 +638,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
           SelectableText(
             label,
             style: TextStyle(
-              fontSize: AppFontSize.xs,
+              fontSize: 11,
               fontWeight: FontWeight.w500,
               color: color,
             ),
@@ -698,7 +698,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
               return ListTile(
                 leading: const Icon(
                   Icons.warning_amber_rounded,
-                  color: AppColors.danger,
+                  color: Colors.red,
                 ),
                 title: Text(a.channel),
                 subtitle: Text(
@@ -779,7 +779,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
   // screen was pushed.
   Widget _buildAppBarTitle() {
     final connected = widget.device.isConnected;
-    final statusColor = connected ? AppColors.accent : AppColors.danger;
+    final statusColor = connected ? Colors.greenAccent : Colors.redAccent;
     final statusLabel = connected ? 'Conectado' : 'Desconectado';
     final fwLabel = 'FW ${_currentFwVersion ?? 'v1.0.0'}';
 
@@ -794,10 +794,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       children: [
         Text(
           widget.device.name,
-          style: const TextStyle(
-            fontSize: AppFontSize.xl,
-            fontWeight: FontWeight.w700,
-          ),
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
 
         const SizedBox(height: 2),
@@ -809,11 +806,11 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
             const SizedBox(width: 6),
 
-            _appBarChip(label: fwLabel, color: AppColors.foregroundMuted),
+            _appBarChip(label: fwLabel, color: Colors.white60),
 
             const SizedBox(width: 6),
 
-            _appBarChip(label: uptimeLabel, color: AppColors.foregroundMuted),
+            _appBarChip(label: uptimeLabel, color: Colors.white60),
 
             if (lastAlarm != null) ...[
               const SizedBox(width: 6),
@@ -828,10 +825,10 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                       vertical: 0,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.danger.withOpacity(0.15),
+                      color: Colors.redAccent.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: AppColors.danger.withOpacity(0.4),
+                        color: Colors.redAccent.withOpacity(0.4),
                         width: 1,
                       ),
                     ),
@@ -840,7 +837,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                       children: [
                         const Icon(
                           Icons.warning_amber_rounded,
-                          color: AppColors.danger,
+                          color: Colors.redAccent,
                           size: 14,
                         ),
 
@@ -853,8 +850,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                             '(${alarmHistory.length})',
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: AppFontSize.xs,
-                              color: AppColors.danger,
+                              fontSize: 11,
+                              color: Colors.redAccent,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -874,7 +871,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                             child: Icon(
                               Icons.delete_outline,
                               size: 16,
-                              color: AppColors.foregroundMuted,
+                              color: Colors.white60,
                             ),
                           ),
                         ),
@@ -910,7 +907,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: AppColors.warning.withOpacity(0.15),
+      color: Colors.orange.withOpacity(0.15),
       child: Row(
         children: [
           const SizedBox(
@@ -918,7 +915,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
             height: 14,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: AppColors.warning,
+              color: Colors.orangeAccent,
             ),
           ),
           const SizedBox(width: 10),
@@ -926,8 +923,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
             child: Text(
               label,
               style: const TextStyle(
-                color: AppColors.warning,
-                fontSize: AppFontSize.md,
+                color: Colors.orangeAccent,
+                fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -941,18 +938,18 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
   Widget build(BuildContext context) {
     return _loadingChannels || _loadingMQTT
         ? Scaffold(
-            backgroundColor: AppColors.background,
+            backgroundColor: const Color(0xFF0F0F0F),
             body: Center(
               child: Container(
                 width: 360,
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: AppColors.surface,
+                  color: const Color(0xFF1E1E1E),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.divider),
+                  border: Border.all(color: Colors.white12),
                   boxShadow: const [
                     BoxShadow(
-                      color: AppColors.shadow,
+                      color: Colors.black54,
                       blurRadius: 12,
                       offset: Offset(0, 6),
                     ),
@@ -963,15 +960,15 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                   children: const [
                     CircularProgressIndicator(
                       strokeWidth: 3,
-                      color: AppColors.primary,
+                      color: Color.fromARGB(255, 63, 146, 66),
                     ),
                     SizedBox(height: 20),
                     Text(
                       'Carregando configurações do dispositivo\ne tentando conectar',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: AppFontSize.lg,
-                        color: AppColors.foregroundSecondary,
+                        fontSize: 16,
+                        color: Colors.white70,
                         height: 1.4,
                       ),
                     ),
@@ -982,7 +979,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
           )
         : Scaffold(
             appBar: AppBar(
-              backgroundColor: AppColors.surfaceHigh,
+              backgroundColor: const Color.fromARGB(255, 35, 35, 35),
               toolbarHeight: 72,
               title: _buildAppBarTitle(),
               leading: IconButton(
@@ -995,10 +992,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                   tooltip: 'Histórico',
                   splashRadius: 24,
                   iconSize: 24,
-                  icon: const Icon(
-                    Icons.history,
-                    color: AppColors.foregroundSecondary,
-                  ),
+                  icon: const Icon(Icons.history, color: Colors.white70),
                   onPressed: _showAlarmHistory,
                 ),
                 IconButton(
@@ -1048,8 +1042,21 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                 IconButton(
                   tooltip: 'Programar dispositivo',
                   icon: const Icon(Icons.settings_applications_sharp),
-                  onPressed: () =>
-                      context.go(AppRoutes.deviceLogic(widget.device.deviceId)),
+                  onPressed: () async {
+                    await _loadChannelPrefs();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => VisualLogicBuilderPage(
+                          device: widget.device,
+                          aiCfg: aiCfg,
+                          diCfg: diCfg,
+                          aoCfg: aoCfg,
+                          doCfg: doCfg,
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 IconButton(
                   tooltip: 'Upload de firmware',
@@ -1093,7 +1100,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
 
                 if (_loadingChannels)
                   Container(
-                    color: AppColors.scrim.withOpacity(0.6),
+                    color: Colors.black.withOpacity(0.6),
                     child: const Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -1102,9 +1109,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                           SizedBox(height: 14),
                           Text(
                             'Carregando configurações do dispositivo...',
-                            style: TextStyle(
-                              color: AppColors.foregroundSecondary,
-                            ),
+                            style: TextStyle(color: Colors.white70),
                           ),
                         ],
                       ),
@@ -1134,7 +1139,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                     child: Text(
                       'Entradas Analógicas',
                       style: TextStyle(
-                        fontSize: AppFontSize.md,
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1161,7 +1166,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                     child: Text(
                       'Saídas Analógicas',
                       style: TextStyle(
-                        fontSize: AppFontSize.md,
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1188,7 +1193,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                     child: Text(
                       'Entradas Digitais',
                       style: TextStyle(
-                        fontSize: AppFontSize.md,
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1215,7 +1220,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                     child: Text(
                       'Saídas Digitais',
                       style: TextStyle(
-                        fontSize: AppFontSize.md,
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1281,10 +1286,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       children: [
         Text(
           title,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: AppFontSize.xl,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         const SizedBox(height: 10),
         GridView.builder(
@@ -1316,15 +1318,12 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
     VoidCallback? onTap,
   }) {
     return Material(
-      color: AppColors.surface,
+      color: const Color(0xFF1B1B1B),
       elevation: 6,
-      shadowColor: AppColors.shadow,
+      shadowColor: Colors.black54,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: BorderSide(
-          color: alert ? AppColors.danger : AppColors.border,
-          width: 2,
-        ),
+        side: BorderSide(color: alert ? Colors.red : Colors.white10, width: 2),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -1349,7 +1348,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
               children: [
                 AppBar(
                   title: Text(title),
-                  backgroundColor: AppColors.overlayFaint,
+                  backgroundColor: const Color.fromARGB(9, 255, 255, 255),
                   leading: IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(ctx).pop(),
@@ -1383,7 +1382,9 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
     final c = aiCfg[i];
     final value = v ?? 0;
     final outOfRange = v != null && (value < c.min || value > c.max);
-    final color = outOfRange ? AppColors.danger : AppColors.neutral;
+    final color = outOfRange
+        ? Colors.redAccent
+        : const Color.fromARGB(255, 167, 167, 167);
 
     return _cardShell(
       alert: outOfRange,
@@ -1404,7 +1405,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(c.name, style: const TextStyle(fontSize: AppFontSize.lg)),
+              Text(c.name, style: const TextStyle(fontSize: 17)),
 
               SizedBox(
                 height:
@@ -1425,8 +1426,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                 child: Text(
                   '${value.toStringAsFixed(c.decimals)} ${c.unit}'.trim(),
                   style: TextStyle(
-                    fontSize: AppFontSize.lg,
-                    color: outOfRange ? AppColors.danger : null,
+                    fontSize: 16,
+                    color: outOfRange ? Colors.red : null,
                   ),
                 ),
               ),
@@ -1453,7 +1454,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                     'Valor fora do range configurado (${c.min} – ${c.max})',
                 child: const Icon(
                   Icons.warning_amber_rounded,
-                  color: AppColors.danger,
+                  color: Colors.redAccent,
                   size: 18,
                 ),
               ),
@@ -1482,7 +1483,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(c.name, style: const TextStyle(fontSize: AppFontSize.lg)),
+          Text(c.name, style: const TextStyle(fontSize: 17)),
           SizedBox(
             height:
                 MediaQuery.of(context).size.height *
@@ -1492,20 +1493,20 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: on
-                  ? AppColors.success.withOpacity(0.15)
-                  : AppColors.danger.withOpacity(0.15),
+                  ? Colors.green.withOpacity(0.15)
+                  : Colors.red.withOpacity(0.15),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: on ? AppColors.success : AppColors.danger,
+                color: on ? Colors.green : Colors.redAccent,
                 width: 1.2,
               ),
             ),
             child: Text(
               on ? 'ON' : 'OFF',
               style: TextStyle(
-                color: on ? AppColors.accent : AppColors.danger,
+                color: on ? Colors.greenAccent : Colors.redAccent,
                 fontWeight: FontWeight.bold,
-                fontSize: AppFontSize.md,
+                fontSize: 13,
                 letterSpacing: 0.6,
               ),
             ),
@@ -1543,7 +1544,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(c.name, style: const TextStyle(fontSize: AppFontSize.lg)),
+          Text(c.name, style: const TextStyle(fontSize: 17)),
 
           SizedBox(
             height:
@@ -1555,20 +1556,20 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: on
-                  ? AppColors.success.withOpacity(0.15)
-                  : AppColors.danger.withOpacity(0.15),
+                  ? Colors.green.withOpacity(0.15)
+                  : Colors.red.withOpacity(0.15),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: on ? AppColors.success : AppColors.danger,
+                color: on ? Colors.green : Colors.redAccent,
                 width: 1.2,
               ),
             ),
             child: Text(
               on ? 'ON' : 'OFF',
               style: TextStyle(
-                color: on ? AppColors.accent : AppColors.danger,
+                color: on ? Colors.greenAccent : Colors.redAccent,
                 fontWeight: FontWeight.bold,
-                fontSize: AppFontSize.md,
+                fontSize: 13,
                 letterSpacing: 0.6,
               ),
             ),
@@ -1591,7 +1592,9 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
     final c = aoCfg[i];
     final value = v ?? 0;
     final outOfRange = v != null && (value < c.min || value > c.max);
-    final color = outOfRange ? AppColors.danger : AppColors.neutral;
+    final color = outOfRange
+        ? Colors.redAccent
+        : const Color.fromARGB(255, 167, 167, 167);
 
     return _cardShell(
       alert: outOfRange,
@@ -1611,7 +1614,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(c.name, style: const TextStyle(fontSize: AppFontSize.lg)),
+              Text(c.name, style: const TextStyle(fontSize: 17)),
 
               SizedBox(
                 height:
@@ -1632,8 +1635,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                 child: Text(
                   '${value.toStringAsFixed(c.decimals)} ${c.unit}'.trim(),
                   style: TextStyle(
-                    color: outOfRange ? AppColors.danger : null,
-                    fontSize: AppFontSize.lg,
+                    color: outOfRange ? Colors.red : null,
+                    fontSize: 16,
                   ),
                 ),
               ),
@@ -1659,7 +1662,7 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
                     'Valor fora do range configurado (${c.min} – ${c.max})',
                 child: const Icon(
                   Icons.warning_amber_rounded,
-                  color: AppColors.danger,
+                  color: Colors.redAccent,
                   size: 18,
                 ),
               ),
