@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_web_plugins/url_strategy.dart';
-import 'package:tcc_flutter/routing/app_router.dart';
+import 'package:tcc_flutter/pages/first_screens/login.dart';
+import 'package:tcc_flutter/pages/main_screen/cards_page.dart';
 import 'package:tcc_flutter/services/app_state.dart';
-import 'package:tcc_flutter/theme/app_theme.dart';
 
 void main() {
-  // Clean URLs (/devices/<id>) instead of hash URLs (/#/devices/<id>).
-  // firebase.json already rewrites every path to index.html.
-  usePathUrlStrategy();
   runApp(const MyApp());
 }
 
@@ -34,35 +30,52 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder(
-      future: _boot,
-      builder: (context, snapshot) {
-        // The router is only built after the persisted session check, so
-        // its first redirect already knows whether the user is logged in
-        // and a reload keeps the user on the same page.
-        //
-        // The splash must not contain a Navigator (no MaterialApp): on the
-        // web a Navigator reports "/" to the browser and would wipe the
-        // deep link before the router gets to read it.
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Directionality(
-            textDirection: TextDirection.ltr,
-            child: ColoredBox(
-              color: AppColors.background,
-              child: Center(
-                child: CircularProgressIndicator(color: AppColors.accent),
-              ),
-            ),
-          );
-        }
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Fluxio',
+      theme: ThemeData(
+        inputDecorationTheme: InputDecorationTheme(
+          isDense: true,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Colors.white, width: 1),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Colors.white, width: 1),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Colors.white, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Colors.white, width: 1),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Colors.white, width: 2),
+          ),
+        ),
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.greenAccent,
+          brightness: Brightness.dark,
+        ),
+      ),
+      home: FutureBuilder(
+        future: _boot,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
 
-        return MaterialApp.router(
-          debugShowCheckedModeBanner: false,
-          title: 'Fluxio',
-          theme: appTheme,
-          routerConfig: appRouter,
-        );
-      },
+          return appState.loggedIn ? const CardsPage() : const LoginPage();
+        },
+      ),
     );
   }
 }

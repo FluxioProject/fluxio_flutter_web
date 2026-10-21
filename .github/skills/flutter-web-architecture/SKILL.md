@@ -9,9 +9,7 @@ description: "Explains the Fluxio Flutter web architecture, app state, backend A
 
 | Area | File(s) | Responsibility |
 |---|---|---|
-| App bootstrap | `lib/main.dart` | Persisted login check, then `MaterialApp.router` |
-| Routing | `lib/routing/` | `go_router` config, URL paths (`AppRoutes`), login redirect, route helper pages |
-| Theme | `lib/theme/app_theme.dart` | Color tokens (`AppColors`), type scale (`AppFontSize`), `ThemeData` |
+| App bootstrap | `lib/main.dart` | Theme, persisted login check, initial route |
 | Backend API | `lib/backend_api/api_communication.dart` | HTTP calls to Fluxio backend |
 | App state | `lib/services/app_state.dart` | Logged-in user, selected devices, MQTT credentials/state |
 | MQTT | `lib/mqtt/mqtt_manager.dart` | Browser MQTT connect, subscribe, publish, reconnect state |
@@ -26,43 +24,12 @@ description: "Explains the Fluxio Flutter web architecture, app state, backend A
 
 ```
 main()
-  -> usePathUrlStrategy()
   -> MyApp
   -> _init()
   -> appState.tryPersistLogin(context)
-  -> MaterialApp.router(appRouter)
-  -> redirect: logged in -> requested URL (or /devices)
-               not logged in -> /login?from=<requested URL>
+  -> logged in: CardsPage
+  -> not logged in: LoginPage
 ```
-
-## Routes
-
-| Path | Screen |
-|---|---|
-| `/login` | Login |
-| `/login/register` | Registration |
-| `/login/forgot-password` | Password recovery |
-| `/devices` | Device list |
-| `/devices/:deviceId` | Device dashboard |
-| `/devices/:deviceId/logic` | Logic editor (asks before leaving with unsent changes) |
-
-Routes are nested, so a deep link or reload rebuilds the whole stack and
-back navigation keeps working. Navigate with `context.go(AppRoutes...)` so
-the browser URL follows.
-
-The manual command page has no URL on purpose: it switches the device to
-manual mode and must only open after the confirmation dialog on the
-dashboard. Dialogs (firmware upload, channel editing) also stay off the URL.
-
-The splash shown during the session check must not contain a `Navigator`
-(no `MaterialApp`): on the web it reports `/` to the browser and wipes the
-deep link before the router reads it.
-
-## Colors and Text
-
-Use `AppColors` tokens and `AppFontSize` sizes from
-`lib/theme/app_theme.dart` instead of `Color(...)`, `Colors.*` or numeric
-font sizes, so the visual identity changes in one place.
 
 ## Device Data Flow
 
@@ -103,8 +70,7 @@ Dashboard firmware page
 1. Add or update models in `lib/models/` if the backend contract changes.
 2. Add backend calls in `lib/backend_api/api_communication.dart`.
 3. Store shared session/device state in `appState`.
-4. Add the page under the matching `lib/pages/` area and, if it should be
-   reachable by URL, a route in `lib/routing/app_router.dart`.
+4. Add the page under the matching `lib/pages/` area.
 5. Wire MQTT subscriptions through `mqttManager` when live telemetry is needed.
 6. Run `flutter analyze`.
 

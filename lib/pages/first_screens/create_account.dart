@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/services/app_state.dart';
 import 'package:tcc_flutter/widgets/gradient_bg.dart';
 import 'package:tcc_flutter/widgets/show_message.dart';
@@ -80,12 +79,10 @@ class _RegisterPageState extends State<RegisterPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Card(
                 elevation: 14,
-                shadowColor: AppColors.shadow,
+                shadowColor: Colors.black54,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(
-                    color: AppColors.foreground.withOpacity(0.08),
-                  ),
+                  side: BorderSide(color: Colors.white.withOpacity(0.08)),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(28, 28, 28, 22),
@@ -100,16 +97,13 @@ class _RegisterPageState extends State<RegisterPage> {
                         height: 100,
                       ),
                       const SizedBox(height: 10),
-                      Divider(color: AppColors.foreground.withOpacity(0.08)),
+                      Divider(color: Colors.white.withOpacity(0.08)),
                       const SizedBox(height: 18),
 
                       // Nome
                       const Text(
                         'Nome',
-                        style: TextStyle(
-                          fontSize: AppFontSize.sm,
-                          color: AppColors.foregroundSecondary,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
                       ),
                       const SizedBox(height: 8),
                       _input(
@@ -123,10 +117,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       // Email
                       const Text(
                         'E-mail',
-                        style: TextStyle(
-                          fontSize: AppFontSize.sm,
-                          color: AppColors.foregroundSecondary,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
                       ),
                       const SizedBox(height: 8),
                       _input(
@@ -141,10 +132,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       // Senha
                       const Text(
                         'Senha',
-                        style: TextStyle(
-                          fontSize: AppFontSize.sm,
-                          color: AppColors.foregroundSecondary,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
                       ),
                       const SizedBox(height: 8),
                       _input(
@@ -160,7 +148,7 @@ class _RegisterPageState extends State<RegisterPage> {
                               setState(() => _hidePass = !_hidePass),
                           icon: Icon(
                             _hidePass ? Icons.visibility_off : Icons.visibility,
-                            color: AppColors.foregroundSecondary,
+                            color: Colors.white70,
                           ),
                         ),
                       ),
@@ -170,10 +158,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       // Confirmar senha
                       const Text(
                         'Confirmar senha',
-                        style: TextStyle(
-                          fontSize: AppFontSize.sm,
-                          color: AppColors.foregroundSecondary,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
                       ),
                       const SizedBox(height: 8),
                       _input(
@@ -191,7 +176,7 @@ class _RegisterPageState extends State<RegisterPage> {
                             _hideConfirm
                                 ? Icons.visibility_off
                                 : Icons.visibility,
-                            color: AppColors.foregroundSecondary,
+                            color: Colors.white70,
                           ),
                         ),
                       ),
@@ -203,8 +188,13 @@ class _RegisterPageState extends State<RegisterPage> {
                         height: 50,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.accent,
-                            foregroundColor: AppColors.onAccent,
+                            backgroundColor: const Color.fromARGB(
+                              255,
+                              57,
+                              194,
+                              128,
+                            ),
+                            foregroundColor: Colors.black,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
@@ -219,7 +209,7 @@ class _RegisterPageState extends State<RegisterPage> {
                               Text(
                                 'Criar conta',
                                 style: TextStyle(
-                                  fontSize: AppFontSize.lg,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
@@ -237,8 +227,8 @@ class _RegisterPageState extends State<RegisterPage> {
                           const Text(
                             'Já tem conta?',
                             style: TextStyle(
-                              color: AppColors.foregroundSecondary,
-                              fontSize: AppFontSize.base,
+                              color: Colors.white70,
+                              fontSize: 14,
                             ),
                           ),
                           TextButton(
@@ -246,13 +236,13 @@ class _RegisterPageState extends State<RegisterPage> {
                               Navigator.pop(context);
                             },
                             style: TextButton.styleFrom(
-                              foregroundColor: AppColors.accent,
+                              foregroundColor: Colors.greenAccent,
                             ),
                             child: const Text(
                               'Entrar',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
-                                fontSize: AppFontSize.base,
+                                fontSize: 14,
                               ),
                             ),
                           ),
@@ -287,22 +277,22 @@ class _RegisterPageState extends State<RegisterPage> {
         prefixIcon: Icon(icon),
         suffixIcon: suffix,
         filled: true,
-        fillColor: AppColors.foreground.withOpacity(0.06),
+        fillColor: Colors.white.withOpacity(0.06),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
           vertical: 14,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppColors.foreground.withOpacity(0.12)),
+          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppColors.foreground.withOpacity(0.12)),
+          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.accent, width: 1.4),
+          borderSide: const BorderSide(color: Colors.greenAccent, width: 1.4),
         ),
       ),
     );
