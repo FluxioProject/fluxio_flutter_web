@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 
 class SparkPoint {
   final double value;
@@ -68,16 +69,19 @@ class SparklinePainter extends CustomPainter {
     // Paints
     // =========================
     final axisPaint = Paint()
-      ..color = Colors.white24
+      ..color = AppColors.lineStrong
       ..strokeWidth = 1;
 
     final linePaint = Paint()
-      ..color = const Color(0xFF7CFFCB)
+      ..color = AppColors.accent
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final textStyle = const TextStyle(fontSize: 10, color: Colors.white54);
+    final textStyle = const TextStyle(
+      fontSize: AppFontSize.xs,
+      color: AppColors.foregroundMuted,
+    );
     final tp = TextPainter(textDirection: TextDirection.ltr);
 
     // =========================
@@ -107,7 +111,7 @@ class SparklinePainter extends CustomPainter {
         Offset(leftPad, y),
         Offset(s.width - rightPad, y),
         Paint()
-          ..color = Colors.white10
+          ..color = AppColors.border
           ..strokeWidth = 0.8,
       );
 

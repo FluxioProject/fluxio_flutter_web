@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 
 class GradientBackground extends StatelessWidget {
   final Widget child;
@@ -33,7 +34,7 @@ class GradientBackground extends StatelessWidget {
                     center: const Alignment(0.0, -0.2),
                     radius: 1.05,
                     colors: [
-                      const Color(0xFF00FF99).withOpacity(0.14),
+                      AppColors.accent.withOpacity(0.14),
                       Colors.transparent,
                     ],
                     stops: const [0.0, 1.0],
@@ -53,7 +54,7 @@ class GradientBackground extends StatelessWidget {
                     center: const Alignment(0.9, 0.9),
                     radius: 1.2,
                     colors: [
-                      const Color(0xFF101A16).withOpacity(0.55),
+                      AppColors.backgroundTint.withOpacity(0.55),
                       Colors.transparent,
                     ],
                     stops: const [0.0, 1.0],
@@ -70,7 +71,10 @@ class GradientBackground extends StatelessWidget {
                 gradient: RadialGradient(
                   center: Alignment.center,
                   radius: 1.1,
-                  colors: [Colors.transparent, Colors.black.withOpacity(0.55)],
+                  colors: [
+                    Colors.transparent,
+                    AppColors.scrim.withOpacity(0.55),
+                  ],
                   stops: const [0.55, 1.0],
                 ),
               ),

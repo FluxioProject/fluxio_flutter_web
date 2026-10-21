@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:tcc_flutter/backend_api/api_communication.dart';
 import 'package:tcc_flutter/models/channel_config.dart';
@@ -12,6 +13,45 @@ import 'package:tcc_flutter/services/mqtt_manager.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/widgets/blocks.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/widgets/enums.dart';
 import 'package:tcc_flutter/widgets/show_message.dart';
+
+// Registered by the open editor so the route guard below can ask whether
+// the canvas holds changes that were not sent to the device yet.
+bool Function()? _openEditorHasUnsavedChanges;
+
+/// Asks the operator to confirm leaving the logic editor while it holds
+/// changes that were not sent to the device. Used as the editor route's
+/// onExit guard, so it covers the back button, browser navigation and
+/// in-app redirects (such as logout) alike.
+Future<bool> confirmLeaveLogicEditor(BuildContext context) async {
+  final hasUnsavedChanges = _openEditorHasUnsavedChanges?.call() ?? false;
+  if (!hasUnsavedChanges) return true;
+
+  final leave = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Alterações não enviadas'),
+      content: const Text(
+        'A lógica tem alterações que ainda não foram enviadas ao '
+        'dispositivo. Se sair agora, elas serão perdidas.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Continuar editando'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.dangerStrong,
+          ),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Sair sem enviar'),
+        ),
+      ],
+    ),
+  );
+
+  return leave ?? false;
+}
 
 class VisualLogicBuilderPage extends StatefulWidget {
   final Device device;
@@ -61,9 +101,9 @@ class _EditorSnapshot {
 }
 
 class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
-  static const bg = Color(0xFF141414);
-  static const panel = Color(0xFF1E1E1E);
-  static const accent = Color(0xFF4CAF50);
+  static const bg = AppColors.background;
+  static const panel = AppColors.surface;
+  static const accent = AppColors.primary;
 
   final List<LogicBlock> blocks = [];
   final List<Connection> connections = [];
@@ -133,6 +173,32 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   bool _awaitingSendConfirmation = false;
   Timer? _sendConfirmTimer;
   List<dynamic>? _lastSentBlocksJson;
+
+  // ---------------------------------------------------------------------
+  // UNSAVED CHANGES
+  //
+  // The serialized program (blocks, links and positions) as it was last
+  // loaded from the backend/device or sent to the device. Comparing it
+  // with the current canvas tells whether leaving now would lose work.
+  // Checked lazily, only when the operator tries to leave, so no edit
+  // path has to remember to flag itself as dirty.
+  // ---------------------------------------------------------------------
+  String _savedLogicSnapshot = '';
+  StreamSubscription<html.Event>? _beforeUnloadSub;
+
+  String _encodeLogic() => jsonEncode(_buildLogicJson());
+
+  void _markLogicSaved() => _savedLogicSnapshot = _encodeLogic();
+
+  bool _hasUnsavedChanges() => _encodeLogic() != _savedLogicSnapshot;
+
+  // Closing the tab or reloading the page bypasses the router, so the
+  // browser's own "leave site?" prompt covers those cases.
+  void _onBeforeUnload(html.Event event) {
+    if (!_hasUnsavedChanges()) return;
+    event.preventDefault();
+    if (event is html.BeforeUnloadEvent) event.returnValue = '';
+  }
   DateTime? _logicSendClickTime;
 
   static const Duration _sendConfirmTimeout = Duration(seconds: 6);
@@ -349,6 +415,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       // we got a Map with the expected fields.
       if (resp is Map<String, dynamic> && resp.containsKey('blocks')) {
         _deserializeLogic(resp);
+        _markLogicSaved();
         _loadedFromBackend = true;
       }
       // Otherwise: no logic saved yet for this device, or an error —
@@ -363,6 +430,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   @override
   void initState() {
     super.initState();
+    _markLogicSaved();
+    _openEditorHasUnsavedChanges = _hasUnsavedChanges;
+    _beforeUnloadSub = html.window.onBeforeUnload.listen(_onBeforeUnload);
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _focusNode.requestFocus();
       _showRiskWarning();
@@ -408,6 +479,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
   @override
   void dispose() {
+    _beforeUnloadSub?.cancel();
+    if (_openEditorHasUnsavedChanges == _hasUnsavedChanges) {
+      _openEditorHasUnsavedChanges = null;
+    }
     _logicTimeoutTimer?.cancel();
     _sendConfirmTimer?.cancel();
     mqttManager.unsubscribe('device/${widget.device.deviceId}/logic');
@@ -468,6 +543,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       }
 
       _deserializeLogic(json);
+      _markLogicSaved();
     } catch (e) {
       print('Error decoding logic JSON: $e');
 
@@ -719,21 +795,21 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           backgroundColor: panel,
           title: const Text(
             'Aviso Importante',
-            style: TextStyle(color: Colors.white),
+            style: TextStyle(color: AppColors.foreground),
           ),
           content: const Text(
             'A programação realizada neste editor é de inteira responsabilidade do usuário.\n\n'
             'Configurações incorretas podem causar falhas no equipamento, danos materiais '
             'ou riscos operacionais.\n\n'
             'Utilize este recurso por sua conta e risco.',
-            style: TextStyle(color: Colors.white70),
+            style: TextStyle(color: AppColors.foregroundSecondary),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text(
                 'OK',
-                style: TextStyle(color: Colors.greenAccent),
+                style: TextStyle(color: AppColors.accent),
               ),
             ),
           ],
@@ -1030,26 +1106,26 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       title = 'Lógica confirmada';
       content =
           'O dispositivo confirmou que salvou exatamente a lógica enviada.';
-      color = Colors.greenAccent;
+      color = AppColors.accent;
     } else if (timedOut) {
       title = 'Sem confirmação do dispositivo';
       content =
           'A lógica foi enviada, mas o dispositivo não respondeu ao pedido '
           'de confirmação (logic_get) a tempo. Verifique a conexão e tente '
           'enviar novamente se necessário.';
-      color = Colors.orangeAccent;
+      color = AppColors.warning;
     } else if (decodeError) {
       title = 'Resposta inválida do dispositivo';
       content =
           'A lógica foi enviada, mas a resposta do dispositivo ao pedido '
           'de confirmação não pôde ser interpretada.';
-      color = Colors.orangeAccent;
+      color = AppColors.warning;
     } else {
       title = 'Lógica enviada, mas não confere';
       content =
           'O dispositivo respondeu, mas o que ele tem salvo não bate com o '
           'que foi enviado. Recomenda-se enviar novamente.';
-      color = Colors.orangeAccent;
+      color = AppColors.warning;
     }
 
     showDialog(
@@ -1058,13 +1134,16 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         return AlertDialog(
           backgroundColor: panel,
           title: Text(title, style: TextStyle(color: color)),
-          content: Text(content, style: const TextStyle(color: Colors.white70)),
+          content: Text(
+            content,
+            style: const TextStyle(color: AppColors.foregroundSecondary),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text(
                 'OK',
-                style: TextStyle(color: Colors.greenAccent),
+                style: TextStyle(color: AppColors.accent),
               ),
             ),
           ],
@@ -1106,20 +1185,20 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           backgroundColor: panel,
           title: const Text(
             'Dispositivo offline',
-            style: TextStyle(color: Colors.orangeAccent),
+            style: TextStyle(color: AppColors.warning),
           ),
           content: const Text(
             'O dispositivo está offline no momento. A lógica foi salva no '
             'backend e será enviada automaticamente para o dispositivo assim '
             'que ele se reconectar.',
-            style: TextStyle(color: Colors.white70),
+            style: TextStyle(color: AppColors.foregroundSecondary),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text(
                 'OK',
-                style: TextStyle(color: Colors.greenAccent),
+                style: TextStyle(color: AppColors.accent),
               ),
             ),
           ],
@@ -1407,6 +1486,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       'device/${widget.device.deviceId}/control',
       jsonEncode(payload),
     );
+    _markLogicSaved();
 
     if (appState.isDeviceFresh(widget.device.deviceId)) {
       _startSendConfirmation(logicJson['blocks'] as List<dynamic>);
@@ -1425,7 +1505,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           backgroundColor: panel,
           title: const Text(
             'Erro de compilação',
-            style: TextStyle(color: Colors.redAccent),
+            style: TextStyle(color: AppColors.danger),
           ),
           content: SizedBox(
             width: 400,
@@ -1437,7 +1517,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Text(
                         '• $e',
-                        style: const TextStyle(color: Colors.white70),
+                        style: const TextStyle(
+                          color: AppColors.foregroundSecondary,
+                        ),
                       ),
                     ),
                   )
@@ -1449,7 +1531,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               onPressed: () => Navigator.pop(context),
               child: const Text(
                 'OK',
-                style: TextStyle(color: Colors.greenAccent),
+                style: TextStyle(color: AppColors.accent),
               ),
             ),
           ],
@@ -1554,7 +1636,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           'Isso irá apagar TODOS os blocos e conexões do editor.\n\n'
           'Esta ação não pode ser desfeita.\n\n'
           'Deseja continuar?',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: AppColors.foregroundSecondary),
         ),
         actions: [
           TextButton(
@@ -1563,7 +1645,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color.fromARGB(255, 180, 49, 39),
+              backgroundColor: AppColors.dangerStrong,
             ),
             onPressed: () {
               Navigator.pop(context);
@@ -1571,7 +1653,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             },
             child: const Text(
               'Apagar tudo',
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: AppColors.foreground),
             ),
           ),
         ],
@@ -1733,30 +1815,24 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             // the whole program rather than on a single block.
             IconButton(
               tooltip: 'Importar lógica de um arquivo JSON',
-              icon: const Icon(
-                Icons.file_upload,
-                color: Colors.lightBlueAccent,
-              ),
+              icon: const Icon(Icons.file_upload, color: AppColors.info),
               onPressed: _importLogicFromFile,
             ),
             IconButton(
               tooltip: 'Exportar lógica para um arquivo JSON',
-              icon: const Icon(
-                Icons.file_download,
-                color: Colors.lightBlueAccent,
-              ),
+              icon: const Icon(Icons.file_download, color: AppColors.info),
               onPressed: _exportLogicToFile,
             ),
 
             IconButton(
               tooltip: 'Limpar lógica (apagar todos os blocos)',
-              icon: const Icon(Icons.delete_sweep, color: Colors.redAccent),
+              icon: const Icon(Icons.delete_sweep, color: AppColors.danger),
               onPressed: _confirmClearAll,
             ),
 
             IconButton(
               tooltip: 'Compilar e Enviar',
-              icon: const Icon(Icons.send, color: Colors.greenAccent),
+              icon: const Icon(Icons.send, color: AppColors.accent),
               onPressed: _compileAndSend,
             ),
           ],
@@ -1796,11 +1872,14 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           children: [
             const Text(
               'Blocos',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: AppFontSize.lg,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 12),
 
-            _group('IO do Dispositivo', Colors.greenAccent, [
+            _group('IO do Dispositivo', AppColors.accent, [
               // AI
               // ONLY: channels marked as hidden by the user in the IO screen
               // (ChannelConfig.visible == false) are skipped here so they
@@ -1857,14 +1936,14 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               ),
             ]),
 
-            _group('Matemática', Colors.blueAccent, [
+            _group('Matemática', AppColors.blockMath, [
               _drag('Soma', Icons.add, BlockType.math),
               _drag('Subtração', Icons.remove, BlockType.math),
               _drag('Multiplicação', Icons.close, BlockType.math),
               _drag('Divisão', Icons.calculate, BlockType.math),
             ]),
 
-            _group('Comparação', Colors.orangeAccent, [
+            _group('Comparação', AppColors.warning, [
               _drag('Maior que', Icons.arrow_upward, BlockType.compare),
               _drag('Maior ou igual', Icons.trending_up, BlockType.compare),
               _drag('Menor que', Icons.arrow_downward, BlockType.compare),
@@ -1878,17 +1957,17 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             // the big comment above _mathOpFromTitle explaining why this
             // works without touching the ESP32.
             // ---------------------------------------------------------
-            _group('Lógica (AND / OR / NOT)', Colors.tealAccent, [
+            _group('Lógica (AND / OR / NOT)', AppColors.blockLogic, [
               _drag(kAndTitle, Icons.merge_type, BlockType.math),
               _drag(kOrTitle, Icons.call_split, BlockType.math),
               _drag(kNotTitle, Icons.block, BlockType.math),
             ]),
 
-            _group('Tempo', Colors.purpleAccent, [
+            _group('Tempo', AppColors.blockTimer, [
               _drag('Timer', Icons.timer, BlockType.timer),
             ]),
 
-            _group('Controle (PID)', Colors.pinkAccent, [
+            _group('Controle (PID)', AppColors.blockPid, [
               _drag('PID', Icons.tune, BlockType.pid),
             ]),
 
@@ -1902,7 +1981,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             // _blockWidget and the compile-time check in
             // _compileAndSend).
             // ---------------------------------------------------------
-            _group('Saída Temporizada (TPO/SSR)', Colors.deepOrangeAccent, [
+            _group('Saída Temporizada (TPO/SSR)', AppColors.blockTpo, [
               _drag('TPO (SSR)', Icons.power_settings_new, BlockType.tpo),
             ]),
           ],
@@ -1964,12 +2043,12 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: dragging ? accent : Colors.white10),
+        border: Border.all(color: dragging ? accent : AppColors.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: Colors.white70),
+          Icon(icon, size: 18, color: AppColors.foregroundSecondary),
           const SizedBox(width: 10),
           SizedBox(
             width: 150,
@@ -1977,7 +2056,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(color: AppColors.foreground),
             ),
           ),
         ],
@@ -2102,8 +2181,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 topRight: Radius.circular(8),
                 bottomRight: Radius.circular(8),
               ),
-              splashColor: Colors.white.withOpacity(0.08),
-              highlightColor: Colors.white.withOpacity(0.04),
+              splashColor: AppColors.foreground.withOpacity(0.08),
+              highlightColor: AppColors.foreground.withOpacity(0.04),
               onTap: () {
                 setState(() => toolboxVisible = !toolboxVisible);
               },
@@ -2112,7 +2191,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 height: 48,
                 child: Icon(
                   toolboxVisible ? Icons.chevron_left : Icons.chevron_right,
-                  color: Colors.white70,
+                  color: AppColors.foregroundSecondary,
                 ),
               ),
             ),
@@ -2137,7 +2216,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.4),
+                color: AppColors.scrim.withOpacity(0.4),
                 blurRadius: 8,
                 offset: const Offset(0, 4),
               ),
@@ -2145,7 +2224,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           ),
           child: Icon(
             fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-            color: Colors.white,
+            color: AppColors.foreground,
             size: 22,
           ),
         ),
@@ -2358,12 +2437,12 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: invalidBlocks.contains(b)
-                    ? Colors.redAccent
+                    ? AppColors.danger
                     : linkingFrom == b
-                    ? Colors.greenAccent
+                    ? AppColors.accent
                     : selectedBlock == b
-                    ? const Color.fromARGB(255, 45, 108, 47)
-                    : Colors.white10,
+                    ? AppColors.primaryDark
+                    : AppColors.border,
                 width: invalidBlocks.contains(b) ? 3 : 2,
               ),
             ),
@@ -2378,14 +2457,14 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               children: [
                 Row(
                   children: [
-                    Icon(b.icon, color: Colors.white70),
+                    Icon(b.icon, color: AppColors.foregroundSecondary),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         b.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white),
+                        style: const TextStyle(color: AppColors.foreground),
                       ),
                     ),
                   ],
@@ -2397,8 +2476,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: Colors.greenAccent,
-                      fontSize: 11,
+                      color: AppColors.accent,
+                      fontSize: AppFontSize.xs,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -2465,7 +2544,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             labelText: 'Kp (Proporcional)',
             isDense: true,
             filled: true,
-            fillColor: const Color(0xFF1A1A1A),
+            fillColor: AppColors.surface,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onChanged: (v) {
@@ -2484,7 +2563,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             labelText: 'Ki (Integral)',
             isDense: true,
             filled: true,
-            fillColor: const Color(0xFF1A1A1A),
+            fillColor: AppColors.surface,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onChanged: (v) {
@@ -2503,7 +2582,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             labelText: 'Kd (Derivativo)',
             isDense: true,
             filled: true,
-            fillColor: const Color(0xFF1A1A1A),
+            fillColor: AppColors.surface,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onChanged: (v) {
@@ -2522,7 +2601,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             labelText: 'Saída mínima (%)',
             isDense: true,
             filled: true,
-            fillColor: const Color(0xFF1A1A1A),
+            fillColor: AppColors.surface,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onChanged: (v) {
@@ -2541,7 +2620,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             labelText: 'Saída máxima (%)',
             isDense: true,
             filled: true,
-            fillColor: const Color(0xFF1A1A1A),
+            fillColor: AppColors.surface,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onChanged: (v) {
@@ -2581,7 +2660,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             hintText: 'Duração total do ciclo liga+desliga',
             isDense: true,
             filled: true,
-            fillColor: const Color(0xFF1A1A1A),
+            fillColor: AppColors.surface,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onChanged: (v) {
@@ -2610,7 +2689,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         padding: EdgeInsets.only(bottom: 12),
         child: Text(
           'A = 1 (fixo) — o resultado será 1 − Entrada, ou seja, NÃO(Entrada)',
-          style: TextStyle(fontSize: 12, color: Colors.white38),
+          style: TextStyle(
+            fontSize: AppFontSize.sm,
+            color: AppColors.foregroundDisabled,
+          ),
         ),
       );
     }
@@ -2674,7 +2756,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
           if (alreadyHasConstant)
             const Text(
               'Somente ligação com bloco',
-              style: TextStyle(fontSize: 12, color: Colors.white38),
+              style: TextStyle(
+                fontSize: AppFontSize.sm,
+                color: AppColors.foregroundDisabled,
+              ),
             )
           else if (input == null || input.type == InputSourceType.constant) ...[
             TextField(
@@ -2685,7 +2770,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 hintText: hintText,
                 isDense: true,
                 filled: true,
-                fillColor: const Color(0xFF1A1A1A),
+                fillColor: AppColors.surface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -2722,7 +2807,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 'Ligado a: ${input.fromBlock!.title}',
-                style: const TextStyle(fontSize: 12),
+                style: const TextStyle(fontSize: AppFontSize.sm),
               ),
             ),
         ],
@@ -2743,11 +2828,14 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       children: [
         Row(
           children: [
-            Icon(b.icon, color: Colors.white70),
+            Icon(b.icon, color: AppColors.foregroundSecondary),
             const SizedBox(width: 8),
             Text(
               b.title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontSize: AppFontSize.lg,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ],
         ),
@@ -2755,12 +2843,15 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         const SizedBox(height: 8),
         Text(
           'Tipo: ${b.type.name}',
-          style: const TextStyle(color: Colors.white54),
+          style: const TextStyle(color: AppColors.foregroundMuted),
         ),
 
         Text(
           'ID: ${b.id}',
-          style: const TextStyle(color: Colors.white38, fontSize: 11),
+          style: const TextStyle(
+            color: AppColors.foregroundDisabled,
+            fontSize: AppFontSize.xs,
+          ),
         ),
 
         const Divider(height: 24),
@@ -2772,7 +2863,10 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         const SizedBox(height: 6),
 
         if (inputs.isEmpty)
-          const Text('— nenhuma —', style: TextStyle(color: Colors.white38))
+          const Text(
+            '— nenhuma —',
+            style: TextStyle(color: AppColors.foregroundDisabled),
+          )
         else
           ...inputs.asMap().entries.map((e) {
             final from = e.value.from;
@@ -2783,7 +2877,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               children: [
                 Text(
                   '$label ← ',
-                  style: const TextStyle(color: Colors.white54),
+                  style: const TextStyle(color: AppColors.foregroundMuted),
                 ),
                 Text(from.title),
               ],
@@ -2850,12 +2944,18 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         const SizedBox(height: 6),
 
         if (outputs.isEmpty)
-          const Text('— nenhuma —', style: TextStyle(color: Colors.white38))
+          const Text(
+            '— nenhuma —',
+            style: TextStyle(color: AppColors.foregroundDisabled),
+          )
         else
           ...outputs.map(
             (c) => Row(
               children: [
-                const Text('→ ', style: TextStyle(color: Colors.white54)),
+                const Text(
+                  '→ ',
+                  style: TextStyle(color: AppColors.foregroundMuted),
+                ),
                 Text(c.to.title),
               ],
             ),
@@ -2873,10 +2973,17 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       children: [
         Expanded(
           child: ElevatedButton.icon(
-            icon: const Icon(Icons.delete, size: 18, color: Colors.white),
-            label: const Text('Excluir', style: TextStyle(color: Colors.white)),
+            icon: const Icon(
+              Icons.delete,
+              size: 18,
+              color: AppColors.foreground,
+            ),
+            label: const Text(
+              'Excluir',
+              style: TextStyle(color: AppColors.foreground),
+            ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color.fromARGB(255, 210, 67, 67),
+              backgroundColor: AppColors.dangerStrong,
             ),
             onPressed: () {
               setState(() {
@@ -2913,7 +3020,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       child: selectedBlock == null
           ? const Text(
               'Selecione um bloco',
-              style: TextStyle(color: Colors.white70),
+              style: TextStyle(color: AppColors.foregroundSecondary),
             )
           : _blockProperties(selectedBlock!),
     );
@@ -2929,7 +3036,7 @@ class _ConnectionPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final p = Paint()
-      ..color = Colors.greenAccent
+      ..color = AppColors.accent
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
 
@@ -2954,7 +3061,7 @@ class _GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final p = Paint()
-      ..color = Colors.white.withOpacity(0.04)
+      ..color = AppColors.foreground.withOpacity(0.04)
       ..strokeWidth = 1;
 
     const step = 24.0;

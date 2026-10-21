@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:tcc_flutter/backend_api/api_communication.dart';
-import 'package:tcc_flutter/pages/dashboard_screen/device_details_page.dart';
-import 'package:tcc_flutter/models/channel_config.dart';
+import 'package:go_router/go_router.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/models/device.dart';
-import 'package:tcc_flutter/pages/dashboard_screen/drag_n_drop.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/fw_upload.dart';
-import 'package:tcc_flutter/widgets/show_message.dart';
+import 'package:tcc_flutter/routing/app_router.dart';
 
 class DeviceCard extends StatelessWidget {
   final Device device;
@@ -71,7 +69,7 @@ class DeviceCard extends StatelessWidget {
           SelectableText(
             label,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: AppFontSize.xs,
               fontWeight: FontWeight.w500,
               color: color,
             ),
@@ -81,116 +79,10 @@ class DeviceCard extends StatelessWidget {
     );
   }
 
-  // Applies the backend's per-channel data (name, min/max, notify flags,
-  // etc.) onto a freshly-created default ChannelConfig list. Mirrors
-  // DeviceDetailsPage._loadAllChannelsFromBackend's applyCfg exactly, so
-  // the block-programming screen sees the same channel metadata whether
-  // it's opened from here or from inside the device details page.
-  void _applyChannelData(
-    List<ChannelConfig> list,
-    Map<String, dynamic>? data,
-    bool analog,
-  ) {
-    if (data == null) return;
-
-    data.forEach((key, value) {
-      final index = int.tryParse(key);
-      if (index == null || index >= list.length) return;
-
-      final c = list[index];
-
-      c
-        ..name = value['channelName']?.toString() ?? c.name
-        ..notifyMobile = value['notifyMobile'] ?? false
-        ..notifyEmail = value['notifyEmail'] ?? false
-        ..notifySms = value['notifySms'] ?? false;
-
-      if (analog) {
-        c
-          ..min = (value['min'] ?? c.min).toDouble()
-          ..max = (value['max'] ?? c.max).toDouble()
-          ..mapMin = (value['mapMin'] ?? c.mapMin).toDouble()
-          ..mapMax = (value['mapMax'] ?? c.mapMax).toDouble();
-      }
-    });
-  }
-
-  // Fetches the device's channel configuration from the backend (same
-  // 'devices/get-all-channels' endpoint DeviceDetailsPage uses) and only
-  // then opens VisualLogicBuilderPage — previously this navigated with
-  // empty channel lists, so the block palette had nothing to program
-  // with.
-  Future<void> _openLogicBuilder(BuildContext context) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    final aiCfg = List.generate(4, (i) => ChannelConfig(name: 'AI ${i + 1}'));
-    final aoCfg = List.generate(4, (i) => ChannelConfig(name: 'AO ${i + 1}'));
-    final diCfg = List.generate(
-      4,
-      (i) => ChannelConfig(name: 'DI ${i + 1}', analog: false),
-    );
-    final doCfg = List.generate(
-      4,
-      (i) => ChannelConfig(name: 'DO ${i + 1}', analog: false),
-    );
-
-    try {
-      final res = await Session().getObj(
-        'devices/get-all-channels?deviceId=${device.deviceId}',
-        context,
-      );
-
-      if (res is Map<String, dynamic>) {
-        _applyChannelData(aiCfg, res['ai'], true);
-        _applyChannelData(aoCfg, res['ao'], true);
-        _applyChannelData(diCfg, res['di'], false);
-        _applyChannelData(doCfg, res['do'], false);
-      }
-    } catch (e) {
-      if (context.mounted) {
-        showMessage(context, 'Erro ao carregar canais: $e', true);
-      }
-    } finally {
-      // Close the loading dialog regardless of success/failure. Uses the
-      // root navigator since a plain Navigator.pop(context) here could
-      // accidentally target something else if a route change happened
-      // while we were awaiting.
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-    }
-
-    await applyChannelVisibilityPrefs(device.deviceId, {
-      'ai': aiCfg,
-      'ao': aoCfg,
-      'di': diCfg,
-      'do': doCfg,
-    });
-
-    if (!context.mounted) return;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => VisualLogicBuilderPage(
-          device: device,
-          aiCfg: aiCfg,
-          diCfg: diCfg,
-          aoCfg: aoCfg,
-          doCfg: doCfg,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final connected = device.isConnected;
-    final statusColor = connected ? Colors.greenAccent : Colors.redAccent;
+    final statusColor = connected ? AppColors.accent : AppColors.danger;
     final statusLabel = connected ? 'Conectado' : 'Desconectado';
     final fwLabel = 'FW ${device.fwVersion ?? 'v1.0.0'}';
 
@@ -207,24 +99,17 @@ class DeviceCard extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: connected
-          ? () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DeviceDetailsPage(device: device),
-                ),
-              );
-            }
+          ? () => context.go(AppRoutes.device(device.deviceId))
           : null,
       child: Container(
         height: 140,
         decoration: BoxDecoration(
-          color: const Color(0xFF1B1B1B),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white10, width: 2),
+          border: Border.all(color: AppColors.border, width: 2),
           boxShadow: const [
             BoxShadow(
-              color: Colors.black54,
+              color: AppColors.shadow,
               blurRadius: 10,
               offset: Offset(0, 4),
             ),
@@ -241,7 +126,7 @@ class DeviceCard extends StatelessWidget {
                   SelectableText(
                     device.name,
                     style: const TextStyle(
-                      fontSize: 22,
+                      fontSize: AppFontSize.xxl,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -250,8 +135,8 @@ class DeviceCard extends StatelessWidget {
                     device.deviceId,
                     style: const TextStyle(
                       fontWeight: FontWeight.w500,
-                      fontSize: 13,
-                      color: Colors.white54,
+                      fontSize: AppFontSize.md,
+                      color: AppColors.foregroundMuted,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -260,9 +145,12 @@ class DeviceCard extends StatelessWidget {
                     runSpacing: 6,
                     children: [
                       _chip(label: statusLabel, color: statusColor, dot: true),
-                      _chip(label: fwLabel, color: Colors.white60),
-                      _chip(label: uptimeLabel, color: Colors.white60),
-                      _chip(label: ipLabel, color: Colors.white60),
+                      _chip(label: fwLabel, color: AppColors.foregroundMuted),
+                      _chip(
+                        label: uptimeLabel,
+                        color: AppColors.foregroundMuted,
+                      ),
+                      _chip(label: ipLabel, color: AppColors.foregroundMuted),
                     ],
                   ),
                 ],
@@ -281,7 +169,8 @@ class DeviceCard extends StatelessWidget {
             IconButton(
               tooltip: 'Programar dispositivo',
               icon: const Icon(Icons.settings_applications_sharp),
-              onPressed: () => _openLogicBuilder(context),
+              onPressed: () =>
+                  context.go(AppRoutes.deviceLogic(device.deviceId)),
             ),
             IconButton(
               tooltip: 'Upload de firmware',

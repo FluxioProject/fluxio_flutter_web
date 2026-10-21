@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/widgets/gradient_bg.dart';
 
 class ForgotPasswordPage extends StatelessWidget {
@@ -16,10 +17,12 @@ class ForgotPasswordPage extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Card(
                 elevation: 14,
-                shadowColor: Colors.black54,
+                shadowColor: AppColors.shadow,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: Colors.white.withOpacity(0.08)),
+                  side: BorderSide(
+                    color: AppColors.foreground.withOpacity(0.08),
+                  ),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(28, 28, 28, 22),
@@ -34,15 +37,15 @@ class ForgotPasswordPage extends StatelessWidget {
                         height: 100,
                       ),
                       const SizedBox(height: 10),
-                      Divider(color: Colors.white.withOpacity(0.08)),
+                      Divider(color: AppColors.foreground.withOpacity(0.08)),
                       const SizedBox(height: 18),
                       
                       // Texto explicativo
                       const Text(
                         'Informe seu e-mail cadastrado e enviaremos um link para redefinir sua senha.',
                         style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.white70,
+                          fontSize: AppFontSize.md,
+                          color: AppColors.foregroundSecondary,
                           height: 1.4,
                         ),
                       ),
@@ -52,7 +55,10 @@ class ForgotPasswordPage extends StatelessWidget {
                       // Email
                       const Text(
                         'E-mail',
-                        style: TextStyle(fontSize: 12, color: Colors.white70),
+                        style: TextStyle(
+                          fontSize: AppFontSize.sm,
+                          color: AppColors.foregroundSecondary,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       _input(
@@ -68,13 +74,8 @@ class ForgotPasswordPage extends StatelessWidget {
                         height: 50,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color.fromARGB(
-                              255,
-                              57,
-                              194,
-                              128,
-                            ),
-                            foregroundColor: Colors.black,
+                            backgroundColor: AppColors.accent,
+                            foregroundColor: AppColors.onAccent,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
@@ -91,7 +92,7 @@ class ForgotPasswordPage extends StatelessWidget {
                               Text(
                                 'Enviar link de recuperação',
                                 style: TextStyle(
-                                  fontSize: 15,
+                                  fontSize: AppFontSize.base,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
@@ -109,8 +110,8 @@ class ForgotPasswordPage extends StatelessWidget {
                           const Text(
                             'Lembrou da senha?',
                             style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 14,
+                              color: AppColors.foregroundSecondary,
+                              fontSize: AppFontSize.base,
                             ),
                           ),
                           TextButton(
@@ -118,13 +119,13 @@ class ForgotPasswordPage extends StatelessWidget {
                               Navigator.pop(context);
                             },
                             style: TextButton.styleFrom(
-                              foregroundColor: Colors.greenAccent,
+                              foregroundColor: AppColors.accent,
                             ),
                             child: const Text(
                               'Voltar ao login',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
-                                fontSize: 14,
+                                fontSize: AppFontSize.base,
                               ),
                             ),
                           ),
@@ -152,22 +153,22 @@ class ForgotPasswordPage extends StatelessWidget {
         hintText: hint,
         prefixIcon: Icon(icon),
         filled: true,
-        fillColor: Colors.white.withOpacity(0.06),
+        fillColor: AppColors.foreground.withOpacity(0.06),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
           vertical: 14,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+          borderSide: BorderSide(color: AppColors.foreground.withOpacity(0.12)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+          borderSide: BorderSide(color: AppColors.foreground.withOpacity(0.12)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Colors.greenAccent, width: 1.4),
+          borderSide: const BorderSide(color: AppColors.accent, width: 1.4),
         ),
       ),
     );

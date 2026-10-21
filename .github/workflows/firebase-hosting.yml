@@ -1,0 +1,69 @@
+name: Firebase Hosting
+
+# Pull requests get a temporary preview URL (posted as a PR comment);
+# pushes to master deploy to production.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: hosting-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    # Secrets are not available to pull requests opened from forks.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Same version that generated pubspec.lock.
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Fails only on errors; existing infos/warnings do not block a deploy.
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build
+        env:
+          FLUXIO_API_KEY: ${{ secrets.FLUXIO_API_KEY }}
+        run: |
+          if [ -z "$FLUXIO_API_KEY" ]; then
+            echo "::error::Repository secret FLUXIO_API_KEY is not set"
+            exit 1
+          fi
+          flutter build web --release --pwa-strategy=none \
+            --dart-define=FLUXIO_API_KEY="$FLUXIO_API_KEY"
+
+      - name: Deploy preview channel
+        if: github.event_name == 'pull_request'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TCC2026_7D3C4 }}
+          projectId: tcc2026-7d3c4
+          expires: 7d
+
+      - name: Deploy production
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TCC2026_7D3C4 }}
+          projectId: tcc2026-7d3c4
+          channelId: live

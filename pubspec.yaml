@@ -40,6 +40,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   desktop_drop: ^0.7.1
   cross_file: ^0.3.5+4
+  go_router: ^17.5.0
+  flutter_web_plugins:
+    sdk: flutter
 
 dev_dependencies:
   flutter_test:

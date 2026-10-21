@@ -17,6 +17,17 @@ class AppState extends ChangeNotifier {
   final Map<String, DateTime> _lastStatusRx = {};
   static const int statusTimeoutSec = 5;
 
+  /// Flips only when the user logs in or out. The router listens to this
+  /// instead of the whole AppState, so device status updates (every few
+  /// seconds) do not re-run its redirect logic.
+  final ValueNotifier<bool> authState = ValueNotifier<bool>(false);
+
+  @override
+  void notifyListeners() {
+    authState.value = loggedIn;
+    super.notifyListeners();
+  }
+
   bool isDeviceFresh(String deviceId) {
     final t = _lastStatusRx[deviceId];
     if (t == null) return false;
@@ -86,6 +97,10 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       print(e);
+      // The login page shows this error. Navigation is driven by the
+      // router reacting to [authState], so a failed login must surface
+      // here instead of silently leaving the user on the same screen.
+      rethrow;
     } finally {
       _syncing = false;
       notifyListeners();

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 import 'package:tcc_flutter/models/user.dart';
-import 'package:tcc_flutter/pages/first_screens/login.dart';
 import 'package:tcc_flutter/services/app_state.dart';
 
 class EditUserDialog extends StatefulWidget {
@@ -58,12 +58,12 @@ class _EditUserDialogState extends State<EditUserDialog> {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: const Color.fromARGB(255, 210, 67, 67),
+              backgroundColor: AppColors.dangerStrong,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text(
               'Excluir conta',
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: AppColors.foreground),
             ),
           ),
         ],
@@ -77,12 +77,9 @@ class _EditUserDialogState extends State<EditUserDialog> {
 
       if (!mounted) return;
 
+      // Closes this dialog; the router then redirects to the login page
+      // because the session was cleared.
       Navigator.pop(context);
-
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-        (_) => false,
-      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -113,17 +110,19 @@ class _EditUserDialogState extends State<EditUserDialog> {
               const SizedBox(height: 20),
               InputDecorator(
                 decoration: _decoration('Seu E-mail').copyWith(
-                  labelStyle: TextStyle(color: Colors.white.withOpacity(0.55)),
+                  labelStyle: TextStyle(
+                    color: AppColors.foreground.withOpacity(0.55),
+                  ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(
-                      color: Colors.white.withOpacity(0.18),
+                      color: AppColors.foreground.withOpacity(0.18),
                     ),
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(
-                      color: Colors.white.withOpacity(0.18),
+                      color: AppColors.foreground.withOpacity(0.18),
                     ),
                   ),
                   contentPadding: const EdgeInsets.symmetric(
@@ -132,13 +131,13 @@ class _EditUserDialogState extends State<EditUserDialog> {
                   ),
                   prefixIcon: Icon(
                     Icons.lock_outline,
-                    color: Colors.white.withOpacity(0.55),
+                    color: AppColors.foreground.withOpacity(0.55),
                   ),
                 ),
                 child: Text(
                   widget.usuario.email,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withOpacity(0.65),
+                    color: AppColors.foreground.withOpacity(0.65),
                   ),
                 ),
               ),
@@ -147,7 +146,7 @@ class _EditUserDialogState extends State<EditUserDialog> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.18),
+                    color: AppColors.foreground.withOpacity(0.18),
                     width: 1,
                   ),
                 ),
@@ -155,11 +154,11 @@ class _EditUserDialogState extends State<EditUserDialog> {
                   onPressed: _confirmDelete,
                   icon: const Icon(
                     Icons.delete_outline,
-                    color: Colors.redAccent,
+                    color: AppColors.danger,
                   ),
                   label: const Text(
                     'Excluir conta',
-                    style: TextStyle(color: Colors.redAccent),
+                    style: TextStyle(color: AppColors.danger),
                   ),
                 ),
               ),
@@ -174,10 +173,11 @@ class _EditUserDialogState extends State<EditUserDialog> {
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('Salvar', style: TextStyle(color: Colors.white)),
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color.fromARGB(255, 63, 146, 66),
+          child: const Text(
+            'Salvar',
+            style: TextStyle(color: AppColors.foreground),
           ),
+          style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
         ),
       ],
     );

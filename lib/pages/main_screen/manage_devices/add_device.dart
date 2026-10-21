@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:tcc_flutter/models/device.dart';
+import 'package:tcc_flutter/theme/app_theme.dart';
 
 class AddDeviceDialog extends StatefulWidget {
   const AddDeviceDialog({super.key});
@@ -31,6 +33,17 @@ class _AddDeviceDialogState extends State<AddDeviceDialog> {
     return null;
   }
 
+  String? _deviceIdValidator(String? v) {
+    final required = _requiredValidator(v);
+    if (required != null) return required;
+
+    if (Device.normalizeId(v!) == null) {
+      return 'Formato inválido. Use esp32_ seguido de 12 caracteres '
+          '(0-9, A-F).';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -52,9 +65,18 @@ class _AddDeviceDialogState extends State<AddDeviceDialog> {
 
               TextFormField(
                 controller: idCtrl,
-                decoration: _decoration('Device ID'),
-                validator: _requiredValidator,
-                textInputAction: TextInputAction.next,
+                decoration: _decoration('Device ID').copyWith(
+                  hintText: Device.idExample,
+                  helperText:
+                      'Aparece na página inicial do portal de configuração '
+                      'do ESP32.',
+                  helperMaxLines: 2,
+                  errorMaxLines: 2,
+                ),
+                validator: _deviceIdValidator,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _submit(),
               ),
             ],
           ),
@@ -67,10 +89,11 @@ class _AddDeviceDialogState extends State<AddDeviceDialog> {
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('Adicionar', style: TextStyle(color: Colors.white)),
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color.fromARGB(255, 63, 146, 66),
+          child: const Text(
+            'Adicionar',
+            style: TextStyle(color: AppColors.foreground),
           ),
+          style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
         ),
       ],
     );
@@ -81,7 +104,7 @@ class _AddDeviceDialogState extends State<AddDeviceDialog> {
 
     Navigator.pop(context, {
       'name': nameCtrl.text.trim(),
-      'deviceId': idCtrl.text.trim(),
+      'deviceId': Device.normalizeId(idCtrl.text)!,
     });
   }
 }
