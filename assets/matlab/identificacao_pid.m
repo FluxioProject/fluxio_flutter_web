@@ -237,10 +237,7 @@ else
     sp = SETPOINT;
 end
 usarTPO = ~isempty(TPO_PERIODO) && TPO_PERIODO > 0;
-dt = Ts;
-if usarTPO
-    dt = min(Ts, TPO_PERIODO/50);
-end
+dt = 0.05; % varredura da lógica no firmware (50 ms)
 tFim = max(tt(end), 4*Tau + L);
 tSim = (0:dt:tFim)';
 nSim = numel(tSim);
@@ -256,25 +253,27 @@ for i = 1:nRegras
     filaU = zeros(nAtraso + 1, 1); % entrada atrasada pelo tempo morto
     integ = 0;
     eAnt = sp - yRepouso;
-    duty = 0;
     inicioCiclo = 0;
     for k = 1:nSim
         yk = yRepouso + x;
         e = sp - yk;
         deriv = kdN*(e - eAnt)/dt;
         eAnt = e;
-        saida = kpN*e + integ + deriv;
+        % Anti-windup igual ao bloco PID do firmware: a integral nova só
+        % é aceita se a saída sem saturação ficar dentro dos limites.
+        integTent = integ + kiN*e*dt;
+        saida = kpN*e + integTent + deriv;
         saidaSat = min(max(saida, satMin), satMax);
-        % Integração condicional: não integra se empurrar mais a saturação.
-        if saida == saidaSat || sign(e) ~= sign(saida - saidaSat)
-            integ = integ + kiN*e*dt;
+        if saida == saidaSat
+            integ = integTent;
         end
         if usarTPO
-            if k == 1 || tSim(k) - inicioCiclo >= TPO_PERIODO
+            % Como no firmware: o ciclo reinicia a cada período e o duty
+            % é relido a cada varredura (não fica travado no ciclo).
+            if tSim(k) - inicioCiclo >= TPO_PERIODO
                 inicioCiclo = tSim(k);
-                duty = saidaSat;
             end
-            uAplicada = double(tSim(k) - inicioCiclo < duty*TPO_PERIODO);
+            uAplicada = double(tSim(k) - inicioCiclo < saidaSat*TPO_PERIODO);
         else
             uAplicada = saidaSat;
         end

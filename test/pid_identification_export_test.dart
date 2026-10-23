@@ -19,7 +19,9 @@ List<ExportSeries> _syntheticSeries({bool withEdge = true}) {
     final t = withEdge ? k.toDouble() : k + stepAt;
     final u = t >= stepAt ? 1.0 : 0.0;
     final dt = t - stepAt - 4;
-    final y = 21 + (dt > 0 ? 25 * (1 - exp(-dt / 110)) : 0) +
+    final y =
+        21 +
+        (dt > 0 ? 25 * (1 - exp(-dt / 110)) : 0) +
         (rnd.nextDouble() - 0.5) * 0.2;
     temp.add(SparkPoint(y, time));
     dout.add(SparkPoint(u, time));
@@ -66,6 +68,46 @@ void main() {
     );
     expect(filtered.rows, 100);
     expect(filtered.firstSample, series.first.points[100].time);
+  });
+
+  test('CSV prefers device millis, handles wrap, reboot and lost seq', () {
+    final t0 = DateTime(2026, 10, 22, 19);
+    // Arrival jitter: messages land at 0, 1.8, 2.0, 3.5, ... s while the
+    // device sampled every 1000 ms (wrapping millis() at 2^32).
+    const wrap = 0x100000000;
+    final samples = <(int arrivalMs, int deviceMs, int seq)>[
+      (0, wrap - 1500, 10),
+      (1800, wrap - 500, 11),
+      (2000, 500, 12), // millis() wrapped
+      (3500, 2500, 14), // seq 13 lost, device gap 2 s
+      (60000, 300, 0), // reboot: falls back to arrival step
+      (61000, 1300, 1),
+    ];
+    final points = [
+      for (final s in samples)
+        SparkPoint(
+          1,
+          t0.add(Duration(milliseconds: s.$1)),
+          deviceMs: s.$2,
+          seq: s.$3,
+        ),
+    ];
+    final csv = buildTraceCsv([ExportSeries(header: 'AI_1', points: points)]);
+    final times = const LineSplitter()
+        .convert(csv.content)
+        .skip(1)
+        .map((l) => l.split(',').first)
+        .toList();
+    expect(times, ['0.000', '1.000', '2.000', '4.000', '60.500', '61.500']);
+    expect(csv.deviceTimedSteps, 4);
+    expect(csv.usesDeviceClock, isFalse);
+    expect(csv.lostMessages, 1);
+  });
+
+  test('CSV falls back to arrival time without device fields', () {
+    final csv = buildTraceCsv(_syntheticSeries());
+    expect(csv.deviceTimedSteps, 0);
+    expect(csv.lostMessages, 0);
   });
 
   test('zip contains CSV, filled script and README', () async {

@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 
 class SparkPoint {
   final double value;
+  // Arrival time at the browser; drives the live charts.
   final DateTime time;
+  // Device millis() and sequence number from the telemetry message, when
+  // the firmware sends them; used for jitter-free trace exports.
+  final int? deviceMs;
+  final int? seq;
 
-  SparkPoint(this.value, this.time);
+  SparkPoint(this.value, this.time, {this.deviceMs, this.seq});
 }
 
 // Samples kept per channel history (~1 h at 1 Hz telemetry). Charts only

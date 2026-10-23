@@ -68,14 +68,37 @@ class TraceCsv {
   final String content;
   final int rows;
   final DateTime? firstSample;
+  // Row-to-row steps timed by the device clock (the rest fall back to
+  // browser arrival time).
+  final int deviceTimedSteps;
+  // Telemetry messages missing between exported rows, from seq gaps.
+  final int lostMessages;
 
-  const TraceCsv(this.content, this.rows, this.firstSample);
+  const TraceCsv(
+    this.content,
+    this.rows,
+    this.firstSample, {
+    this.deviceTimedSteps = 0,
+    this.lostMessages = 0,
+  });
+
+  bool get usesDeviceClock => rows > 1 && deviceTimedSteps == rows - 1;
 }
+
+const _uint32Range = 0x100000000;
+
+// A device-clock step longer than this is treated as a reboot (millis()
+// restarted) rather than a real gap, and timed by arrival instead.
+const _maxDeviceStepMs = 10 * 60 * 1000;
 
 // Every telemetry message appends one point to every channel history and
 // trims them together, so the histories stay index-aligned. Rows are
 // matched from the newest point backwards to be safe if lengths differ;
 // the first series provides the row timestamp.
+//
+// t_s accumulates per-row steps: the device millis() difference when the
+// firmware sends it (no network jitter), else the browser arrival
+// difference. Date filtering always uses arrival time.
 TraceCsv buildTraceCsv(
   List<ExportSeries> series, {
   DateTime? startAt,
@@ -85,28 +108,57 @@ TraceCsv buildTraceCsv(
     ..writeln(['t_s', ...series.map((s) => s.header)].join(','));
   if (series.isEmpty) return TraceCsv(buffer.toString(), 0, null);
 
-  final n = series
-      .map((s) => s.points.length)
-      .reduce((a, b) => a < b ? a : b);
+  final n = series.map((s) => s.points.length).reduce((a, b) => a < b ? a : b);
+  final ref = series.first.points;
 
-  DateTime? t0;
+  SparkPoint? prev;
+  DateTime? firstTime;
+  var elapsedMs = 0;
   var rows = 0;
+  var deviceSteps = 0;
+  var lost = 0;
   for (int j = 0; j < n; j++) {
-    final ref = series.first.points;
-    final time = ref[ref.length - n + j].time;
-    if (startAt != null && time.isBefore(startAt)) continue;
-    if (endAt != null && time.isAfter(endAt)) continue;
+    final p = ref[ref.length - n + j];
+    if (startAt != null && p.time.isBefore(startAt)) continue;
+    if (endAt != null && p.time.isAfter(endAt)) continue;
 
-    t0 ??= time;
+    firstTime ??= p.time;
+    if (prev != null) {
+      var stepMs = p.time.difference(prev.time).inMilliseconds;
+      if (p.deviceMs != null && prev.deviceMs != null) {
+        // Modulo handles the uint32 millis() wrap (~49 days).
+        final deviceStep = (p.deviceMs! - prev.deviceMs!) % _uint32Range;
+        if (deviceStep <= _maxDeviceStepMs) {
+          stepMs = deviceStep;
+          deviceSteps++;
+        }
+      }
+      elapsedMs += stepMs;
+
+      if (p.seq != null && prev.seq != null) {
+        final gap = (p.seq! - prev.seq!) % _uint32Range - 1;
+        // A huge gap means the counter restarted (reboot), not losses.
+        if (gap > 0 && gap < 100000) lost += gap;
+      }
+    }
+
     final cells = <String>[
-      (time.difference(t0).inMilliseconds / 1000.0).toStringAsFixed(3),
+      (elapsedMs / 1000.0).toStringAsFixed(3),
       for (final s in series)
         s.points[s.points.length - n + j].value.toStringAsFixed(4),
     ];
     buffer.writeln(cells.join(','));
     rows++;
+    prev = p;
   }
-  return TraceCsv(buffer.toString(), rows, t0);
+
+  return TraceCsv(
+    buffer.toString(),
+    rows,
+    firstTime,
+    deviceTimedSteps: deviceSteps,
+    lostMessages: lost,
+  );
 }
 
 Future<Uint8List> buildPidIdentificationZip({
@@ -188,6 +240,18 @@ String _buildReadme(
     b.writeln('Primeira amostra (t = 0): ${_fmtDate(csv.firstSample!)}');
   }
   b.writeln('Amostras: ${csv.rows}');
+  b.writeln(
+    'Base de tempo: ${csv.usesDeviceClock
+        ? 'relógio do dispositivo'
+        : csv.deviceTimedSteps > 0
+        ? 'relógio do dispositivo, com trechos pela chegada no navegador'
+        : 'chegada no navegador'}',
+  );
+  if (csv.lostMessages > 0) {
+    b.writeln(
+      'Mensagens de telemetria perdidas no trecho: ${csv.lostMessages}',
+    );
+  }
   b.writeln();
   b.writeln('CONTEÚDO');
   b.writeln('  dados.csv            Trace exportado do painel.');
@@ -200,8 +264,8 @@ String _buildReadme(
     final role = i == p.inputSeries
         ? '  <- entrada (atuador)'
         : i == p.outputSeries
-            ? '  <- saída (variável de processo)'
-            : '';
+        ? '  <- saída (variável de processo)'
+        : '';
     b.writeln('  ${i + 2}: ${series[i].header}$role');
   }
   b.writeln();
@@ -213,16 +277,24 @@ String _buildReadme(
   b.writeln('     tabela de ganhos Kp, Ki, Kd por regra de sintonia, já nas');
   b.writeln('     unidades do bloco PID. Os gráficos mostram o ajuste do');
   b.writeln('     modelo e a malha fechada simulada para cada regra.');
-  b.writeln('  4. Os parâmetros no topo do script (escala do atuador, saturação,');
+  b.writeln(
+    '  4. Os parâmetros no topo do script (escala do atuador, saturação,',
+  );
   b.writeln('     período do TPO, TAU_C, SETPOINT) podem ser ajustados à mão.');
   b.writeln();
   b.writeln('PARÂMETROS USADOS');
-  b.writeln('  Entrada: ${p.inputLabel} | escala ${_num(p.uMin)} = 0 %, '
-      '${_num(p.uMax)} = 100 %');
+  b.writeln(
+    '  Entrada: ${p.inputLabel} | escala ${_num(p.uMin)} = 0 %, '
+    '${_num(p.uMax)} = 100 %',
+  );
   b.writeln('  Saída: ${p.outputLabel} (${p.outputUnit})');
-  b.writeln('  Saída do PID: ${_num(p.pid0)} = 0 % e ${_num(p.pid100)} = 100 % '
-      'do atuador; saturação ${_num(p.pidOutMin)}..${_num(p.pidOutMax)}');
-  b.writeln('  TPO: ${p.tpoPeriodS == null ? 'não simulado' : '${_num(p.tpoPeriodS!)} s'}');
+  b.writeln(
+    '  Saída do PID: ${_num(p.pid0)} = 0 % e ${_num(p.pid100)} = 100 % '
+    'do atuador; saturação ${_num(p.pidOutMin)}..${_num(p.pidOutMax)}',
+  );
+  b.writeln(
+    '  TPO: ${p.tpoPeriodS == null ? 'não simulado' : '${_num(p.tpoPeriodS!)} s'}',
+  );
   b.writeln();
   b.writeln('COMO FAZER UM BOM ENSAIO');
   b.writeln('  - Desligue o PID/TPO e comande o atuador manualmente.');
@@ -230,23 +302,40 @@ String _buildReadme(
   b.writeln('  - Aplique um único degrau (ex.: 0 % -> 100 %) e não mexa mais.');
   b.writeln('  - Registre até a variável estabilizar de novo (pelo menos 5x a');
   b.writeln('    constante de tempo). O painel guarda só as últimas');
-  b.writeln('    $telemetryHistoryCapacity amostras por canal e só enquanto a tela');
+  b.writeln(
+    '    $telemetryHistoryCapacity amostras por canal e só enquanto a tela',
+  );
   b.writeln('    do dispositivo fica aberta; exporte antes de sair dela.');
   b.writeln('  - Se não houver degrau no trace, o script assume que a entrada');
   b.writeln('    saiu de 0 % no primeiro ponto e avisa.');
   b.writeln();
   b.writeln('SUPOSIÇÕES');
-  b.writeln('  - PID paralelo: saída = Kp*e + Ki*integral(e) + Kd*de/dt,');
-  b.writeln('    com tempo em segundos (Ki em 1/s, Kd em s).');
-  b.writeln('  - O tempo do CSV é a hora de chegada da telemetria no navegador,');
-  b.writeln('    com variação de rede (jitter).');
+  b.writeln('  - PID paralelo, como o bloco PID do firmware:');
+  b.writeln('    saída = Kp*e + Ki*integral(e) + Kd*de/dt, com tempo em');
+  b.writeln('    segundos (Ki em 1/s, Kd em s). A integral congela quando a');
+  b.writeln('    saída satura (anti-windup).');
+  if (csv.usesDeviceClock) {
+    b.writeln('  - O tempo do CSV vem do relógio do dispositivo (millis()).');
+  } else {
+    b.writeln(
+      '  - O tempo do CSV vem, ao menos em parte, da hora de chegada da',
+    );
+    b.writeln('    telemetria no navegador, com variação de rede (jitter).');
+    b.writeln('    Firmware atualizado envia o tempo do próprio dispositivo.');
+  }
   b.writeln('  - Modelo de primeira ordem com atraso (FOPDT), linear.');
   b.writeln();
   b.writeln('SEGURANÇA');
-  b.writeln('  Os ganhos calculados são apenas um ponto de partida. A simulação');
+  b.writeln(
+    '  Os ganhos calculados são apenas um ponto de partida. A simulação',
+  );
   b.writeln('  é simplificada e não substitui o teste real. Ao aplicar no');
-  b.writeln('  equipamento, mantenha limites de segurança (temperatura máxima,');
-  b.writeln('  intertravamentos) e acompanhe o primeiro ciclo de perto. Regras');
+  b.writeln(
+    '  equipamento, mantenha limites de segurança (temperatura máxima,',
+  );
+  b.writeln(
+    '  intertravamentos) e acompanhe o primeiro ciclo de perto. Regras',
+  );
   b.writeln('  como Ziegler-Nichols e Cohen-Coon costumam ser agressivas;');
   b.writeln('  prefira começar por SIMC ou IMC.');
   return b.toString();

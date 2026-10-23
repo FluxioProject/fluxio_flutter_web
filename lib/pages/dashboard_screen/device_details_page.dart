@@ -398,11 +398,16 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
         _lastRetryAt = null;
         _retryAttempts = 0; // telemetria voltou, zera a escalada
 
+        // One arrival timestamp per message keeps every channel aligned.
+        final rx = DateTime.now();
+        SparkPoint point(double v) =>
+            SparkPoint(v, rx, deviceMs: t.deviceMs, seq: t.seq);
+
         for (int i = 0; i < 4; i++) {
-          aiHistory[i].add(SparkPoint(t.ai[i], DateTime.now()));
-          aoHistory[i].add(SparkPoint(t.ao[i], DateTime.now()));
-          diHistory[i].add(SparkPoint(t.di[i].toDouble(), DateTime.now()));
-          doHistory[i].add(SparkPoint(t.doo[i].toDouble(), DateTime.now()));
+          aiHistory[i].add(point(t.ai[i]));
+          aoHistory[i].add(point(t.ao[i]));
+          diHistory[i].add(point(t.di[i].toDouble()));
+          doHistory[i].add(point(t.doo[i].toDouble()));
 
           for (final h in [
             aiHistory[i],
