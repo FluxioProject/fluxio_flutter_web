@@ -30,12 +30,26 @@ flutter run -d chrome --dart-define-from-file=.env.json
 # Build production web assets
 flutter build web --dart-define-from-file=.env.json
 
-# Deploy Firebase Hosting
+# Deploy Firebase Hosting manually (CI normally does this, see below)
 firebase deploy --only hosting
 
 # Clean build outputs
 flutter clean
 ```
+
+## CI/CD
+
+`.github/workflows/firebase-hosting.yml` runs `flutter analyze` (errors
+only) and `flutter build web` with Flutter 3.41.9, then:
+
+- pull request: deploys a Firebase Hosting preview channel (7 days) and
+  comments the URL on the PR;
+- push to `master`: deploys to the live channel.
+
+Required repository secrets: `FLUXIO_API_KEY` and
+`FIREBASE_SERVICE_ACCOUNT_TCC2026_7D3C4` (see README, Deployment). Keep the
+`flutter-version` in the workflow in sync with the SDK that generates
+`pubspec.lock`.
 
 ## Configuration
 
