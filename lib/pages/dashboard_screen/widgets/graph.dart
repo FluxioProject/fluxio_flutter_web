@@ -8,6 +8,11 @@ class SparkPoint {
   SparkPoint(this.value, this.time);
 }
 
+// Samples kept per channel history (~1 h at 1 Hz telemetry). Charts only
+// draw the last SparklinePainter.windowSeconds; the longer tail exists for
+// trace exports such as step tests for PID identification.
+const int telemetryHistoryCapacity = 3600;
+
 class SparklinePainter extends CustomPainter {
   final List<SparkPoint> data;
 

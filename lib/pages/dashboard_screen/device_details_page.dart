@@ -404,10 +404,14 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
           diHistory[i].add(SparkPoint(t.di[i].toDouble(), DateTime.now()));
           doHistory[i].add(SparkPoint(t.doo[i].toDouble(), DateTime.now()));
 
-          if (aiHistory[i].length > 300) aiHistory[i].removeAt(0);
-          if (aoHistory[i].length > 300) aoHistory[i].removeAt(0);
-          if (diHistory[i].length > 300) diHistory[i].removeAt(0);
-          if (doHistory[i].length > 300) doHistory[i].removeAt(0);
+          for (final h in [
+            aiHistory[i],
+            aoHistory[i],
+            diHistory[i],
+            doHistory[i],
+          ]) {
+            if (h.length > telemetryHistoryCapacity) h.removeAt(0);
+          }
         }
         _checkAlarms();
       });
@@ -1578,8 +1582,8 @@ class _DeviceDetailsPageState extends State<DeviceDetailsPage> {
             SizedBox(height: MediaQuery.of(context).size.height * 0.028),
             Expanded(
               child: GestureDetector(
-                onTap: () => _openFullscreenGraph(c.name, diHistory[i]),
-                child: _sparkline(diHistory[i]),
+                onTap: () => _openFullscreenGraph(c.name, doHistory[i]),
+                child: _sparkline(doHistory[i]),
               ),
             ),
           ],

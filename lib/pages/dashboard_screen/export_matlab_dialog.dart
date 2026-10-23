@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:html' as html;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:tcc_flutter/models/channel_config.dart';
+import 'package:tcc_flutter/pages/dashboard_screen/pid_identification_export.dart';
 import 'package:tcc_flutter/pages/dashboard_screen/widgets/graph.dart';
 
 // Entry point: call this from the "Gerenciar cards" row (or anywhere else
@@ -67,6 +69,9 @@ class _ExportChannel {
   final String label;
   final String varName;
   final List<SparkPoint> points;
+  final String unit;
+  final double mapMin;
+  final double mapMax;
 
   _ExportChannel({
     required this.groupLabel,
@@ -74,6 +79,9 @@ class _ExportChannel {
     required this.label,
     required this.varName,
     required this.points,
+    this.unit = '',
+    this.mapMin = 0,
+    this.mapMax = 100,
   });
 
   String get key => '${groupLabel}_$index';
@@ -108,6 +116,8 @@ class _ExportMatlabDialog extends StatefulWidget {
   State<_ExportMatlabDialog> createState() => _ExportMatlabDialogState();
 }
 
+enum _ExportMode { trace, pid }
+
 class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
   late final List<_ExportChannel> _allChannels;
   final Set<String> _selectedKeys = {};
@@ -115,6 +125,29 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
   bool _filterByDate = false;
   DateTime? _startAt;
   DateTime? _endAt;
+
+  _ExportMode _mode = _ExportMode.trace;
+  bool _busy = false;
+
+  // PID identification mode: actuator (DO/AO) and process variable (AI).
+  String? _inputKey;
+  String? _outputKey;
+  final _uMinCtrl = TextEditingController(text: '0');
+  final _uMaxCtrl = TextEditingController(text: '1');
+  final _pidOutMinCtrl = TextEditingController(text: '0');
+  final _pidOutMaxCtrl = TextEditingController(text: '100');
+  // Matches BLOCK_TPO's firmware default period (10000 ms).
+  final _tpoPeriodCtrl = TextEditingController(text: '10');
+
+  @override
+  void dispose() {
+    _uMinCtrl.dispose();
+    _uMaxCtrl.dispose();
+    _pidOutMinCtrl.dispose();
+    _pidOutMaxCtrl.dispose();
+    _tpoPeriodCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -126,6 +159,11 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
     for (final c in _allChannels) {
       if (c.points.isNotEmpty) _selectedKeys.add(c.key);
     }
+
+    final inputs = _pidInputCandidates;
+    final outputs = _pidOutputCandidates;
+    if (inputs.isNotEmpty) _selectInput(inputs.first.key);
+    if (outputs.isNotEmpty) _outputKey = outputs.first.key;
   }
 
   List<_ExportChannel> _buildChannelList() {
@@ -137,7 +175,8 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
       List<ChannelConfig> cfg,
     ) {
       for (int i = 0; i < history.length; i++) {
-        final name = i < cfg.length ? cfg[i].name : '$groupLabel ${i + 1}';
+        final c = i < cfg.length ? cfg[i] : null;
+        final name = c?.name ?? '$groupLabel ${i + 1}';
         list.add(
           _ExportChannel(
             groupLabel: groupLabel,
@@ -145,6 +184,9 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
             label: name,
             varName: _sanitizeVarName('${groupLabel}_${i + 1}_$name'),
             points: history[i],
+            unit: c?.unit ?? '',
+            mapMin: c?.mapMin ?? 0,
+            mapMax: c?.mapMax ?? 100,
           ),
         );
       }
@@ -213,6 +255,157 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
   }
 
   bool get _hasAnySelection => _selectedKeys.isNotEmpty;
+
+  List<_ExportChannel> get _pidInputCandidates => _allChannels
+      .where((c) =>
+          (c.groupLabel == 'DO' || c.groupLabel == 'AO') && c.points.isNotEmpty)
+      .toList();
+
+  List<_ExportChannel> get _pidOutputCandidates => _allChannels
+      .where((c) => c.groupLabel == 'AI' && c.points.isNotEmpty)
+      .toList();
+
+  _ExportChannel? _channelByKey(String? key) {
+    for (final c in _allChannels) {
+      if (c.key == key) return c;
+    }
+    return null;
+  }
+
+  bool get _inputIsDigital => _channelByKey(_inputKey)?.groupLabel == 'DO';
+
+  // Also resets the actuator scale: a DO is logged as 0/1 and driven by
+  // PID -> TPO; an AO is written directly by the PID in its own units.
+  void _selectInput(String key) {
+    final c = _channelByKey(key);
+    if (c == null) return;
+    _inputKey = key;
+    _selectedKeys.add(key);
+    if (c.groupLabel == 'DO') {
+      _uMinCtrl.text = '0';
+      _uMaxCtrl.text = '1';
+      _pidOutMinCtrl.text = '0';
+      _pidOutMaxCtrl.text = '100';
+      _tpoPeriodCtrl.text = '10';
+    } else {
+      _uMinCtrl.text = _fmtNum(c.mapMin);
+      _uMaxCtrl.text = _fmtNum(c.mapMax);
+      _pidOutMinCtrl.text = _fmtNum(c.mapMin);
+      _pidOutMaxCtrl.text = _fmtNum(c.mapMax);
+      _tpoPeriodCtrl.text = '';
+    }
+  }
+
+  String _fmtNum(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toString();
+
+  double? _parse(TextEditingController c) =>
+      double.tryParse(c.text.trim().replaceAll(',', '.'));
+
+  // Returns a user-facing message when the PID form is not exportable.
+  String? get _pidFormError {
+    if (_channelByKey(_inputKey) == null) {
+      return 'Selecione a entrada (DO/AO com dados).';
+    }
+    if (_channelByKey(_outputKey) == null) {
+      return 'Selecione a saída (AI com dados).';
+    }
+    final uMin = _parse(_uMinCtrl);
+    final uMax = _parse(_uMaxCtrl);
+    if (uMin == null || uMax == null || uMin == uMax) {
+      return 'Escala do atuador inválida.';
+    }
+    final outMin = _parse(_pidOutMinCtrl);
+    final outMax = _parse(_pidOutMaxCtrl);
+    if (outMin == null || outMax == null || outMax <= outMin) {
+      return 'Saturação do PID inválida.';
+    }
+    if (_inputIsDigital && _tpoPeriodCtrl.text.trim().isNotEmpty) {
+      final tpo = _parse(_tpoPeriodCtrl);
+      if (tpo == null || tpo <= 0) return 'Período do TPO inválido.';
+    }
+    return null;
+  }
+
+  bool get _canExport => _mode == _ExportMode.trace
+      ? _hasAnySelection
+      : _pidFormError == null && !_busy;
+
+  Future<void> _exportPid() async {
+    final input = _channelByKey(_inputKey)!;
+    final output = _channelByKey(_outputKey)!;
+    final channels = _allChannels
+        .where((c) =>
+            _selectedKeys.contains(c.key) || c == input || c == output)
+        .toList();
+    final series = channels
+        .map((c) => ExportSeries(header: c.varName, points: c.points))
+        .toList();
+
+    final csv = buildTraceCsv(
+      series,
+      startAt: _filterByDate ? _startAt : null,
+      endAt: _filterByDate ? _endAt : null,
+    );
+    if (csv.rows < 30) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Só ${csv.rows} amostras no período: são necessárias pelo menos 30.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final uMin = _parse(_uMinCtrl)!;
+    final uMax = _parse(_uMaxCtrl)!;
+    final digital = input.groupLabel == 'DO';
+    final tpoText = _tpoPeriodCtrl.text.trim();
+
+    final params = PidExportParams(
+      deviceName: widget.deviceName,
+      deviceId: widget.deviceId,
+      inputSeries: channels.indexOf(input),
+      outputSeries: channels.indexOf(output),
+      inputLabel: input.label,
+      outputLabel: output.label,
+      outputUnit: output.unit,
+      uMin: uMin,
+      uMax: uMax,
+      // PID -> TPO takes a 0..100 % duty; an AO is written directly.
+      pid0: digital ? 0 : uMin,
+      pid100: digital ? 100 : uMax,
+      pidOutMin: _parse(_pidOutMinCtrl)!,
+      pidOutMax: _parse(_pidOutMaxCtrl)!,
+      tpoPeriodS: digital && tpoText.isNotEmpty ? _parse(_tpoPeriodCtrl) : null,
+    );
+
+    setState(() => _busy = true);
+    try {
+      final zip = await buildPidIdentificationZip(
+        series: series,
+        csv: csv,
+        params: params,
+      );
+      final safeDeviceName = _sanitizeVarName(widget.deviceName).toLowerCase();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final filename = 'identificacao_pid_${safeDeviceName}_$timestamp.zip';
+      _downloadBytes(filename, zip, 'application/zip');
+
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Pacote exportado: $filename')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Falha ao gerar o pacote: $e')),
+      );
+    }
+  }
 
   void _export() {
     final selected = _allChannels
@@ -292,8 +485,11 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
   }
 
   void _downloadFile(String filename, String content) {
-    final bytes = utf8.encode(content);
-    final blob = html.Blob([bytes], 'text/plain');
+    _downloadBytes(filename, utf8.encode(content), 'text/plain');
+  }
+
+  void _downloadBytes(String filename, List<int> bytes, String mimeType) {
+    final blob = html.Blob([Uint8List.fromList(bytes)], mimeType);
     final url = html.Url.createObjectUrlFromBlob(blob);
     html.AnchorElement(href: url)
       ..setAttribute('download', filename)
@@ -319,18 +515,23 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
         const Divider(height: 8),
         ...channels.map((c) {
           final hasData = c.points.isNotEmpty;
+          // The PID input/output columns are always exported in PID mode.
+          final locked = _mode == _ExportMode.pid &&
+              (c.key == _inputKey || c.key == _outputKey);
           return CheckboxListTile(
             dense: true,
-            enabled: hasData,
+            enabled: hasData && !locked,
             title: Text(c.label),
             subtitle: Text(
-              hasData
-                  ? '${c.points.length} pontos'
-                  : 'Sem dados no buffer atual',
+              !hasData
+                  ? 'Sem dados no buffer atual'
+                  : locked
+                      ? '${c.points.length} pontos (usado na identificação)'
+                      : '${c.points.length} pontos',
               style: const TextStyle(fontSize: 11),
             ),
-            value: _selectedKeys.contains(c.key),
-            onChanged: !hasData
+            value: locked || _selectedKeys.contains(c.key),
+            onChanged: !hasData || locked
                 ? null
                 : (v) {
                     setState(() {
@@ -347,23 +548,169 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
     );
   }
 
+  Widget _numberField(
+    TextEditingController controller,
+    String label, {
+    String? hint,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(
+        decimal: true,
+        signed: true,
+      ),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        isDense: true,
+        border: const OutlineInputBorder(),
+      ),
+      onChanged: (_) => setState(() {}),
+    );
+  }
+
+  Widget _channelDropdown({
+    required String label,
+    required String? value,
+    required List<_ExportChannel> options,
+    required ValueChanged<String> onChanged,
+  }) {
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: label,
+        isDense: true,
+        border: const OutlineInputBorder(),
+      ),
+      items: options
+          .map((c) => DropdownMenuItem(
+                value: c.key,
+                child: Text('${c.groupLabel} ${c.index + 1} - ${c.label}'),
+              ))
+          .toList(),
+      onChanged: (v) {
+        if (v != null) onChanged(v);
+      },
+    );
+  }
+
+  Widget _pidSection() {
+    final error = _pidFormError;
+    final digital = _inputIsDigital;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _channelDropdown(
+          label: 'Entrada (atuador)',
+          value: _inputKey,
+          options: _pidInputCandidates,
+          onChanged: (k) => setState(() => _selectInput(k)),
+        ),
+        const SizedBox(height: 10),
+        _channelDropdown(
+          label: 'Saída (variável de processo)',
+          value: _outputKey,
+          options: _pidOutputCandidates,
+          onChanged: (k) => setState(() {
+            _outputKey = k;
+            _selectedKeys.add(k);
+          }),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(child: _numberField(_uMinCtrl, 'Atuador 0 %')),
+            const SizedBox(width: 8),
+            Expanded(child: _numberField(_uMaxCtrl, 'Atuador 100 %')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(child: _numberField(_pidOutMinCtrl, 'PID saída mín.')),
+            const SizedBox(width: 8),
+            Expanded(child: _numberField(_pidOutMaxCtrl, 'PID saída máx.')),
+          ],
+        ),
+        if (digital) ...[
+          const SizedBox(height: 10),
+          _numberField(
+            _tpoPeriodCtrl,
+            'Período do TPO (s)',
+            hint: 'Vazio = simular sem TPO',
+          ),
+        ],
+        const SizedBox(height: 6),
+        Text(
+          digital
+              ? 'Considera PID -> TPO -> DO: a saída do PID é o duty (0 a 100 %).'
+              : 'Considera PID -> AO: o PID escreve direto na saída analógica.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            error,
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final pidMode = _mode == _ExportMode.pid;
     return AlertDialog(
-      title: const Text('Exportar trace (MATLAB)'),
+      title: Text(
+        pidMode ? 'Exportar identificação PID' : 'Exportar trace (MATLAB)',
+      ),
       content: SizedBox(
         width: 420,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<_ExportMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: _ExportMode.trace,
+                      label: Text('Trace (.m)'),
+                      icon: Icon(Icons.show_chart),
+                    ),
+                    ButtonSegment(
+                      value: _ExportMode.pid,
+                      label: Text('Identificação PID'),
+                      icon: Icon(Icons.tune),
+                    ),
+                  ],
+                  selected: {_mode},
+                  onSelectionChanged: (s) => setState(() => _mode = s.first),
+                ),
+              ),
+              const SizedBox(height: 12),
               Text(
-                'Selecione as entradas/saídas e, se quiser, um período. '
-                'O arquivo gerado é um script .m que cria as variáveis '
-                '(tempo, valor e rótulo) direto no workspace do MATLAB.',
+                pidMode
+                    ? 'Gera um .zip com os dados em CSV, um script MATLAB/Octave '
+                        'que identifica o processo (modelo FOPDT) e sugere ganhos '
+                        'PID por várias regras, e um LEIA-ME para o cliente. '
+                        'Use um trecho com um único degrau na entrada.'
+                    : 'Selecione as entradas/saídas e, se quiser, um período. '
+                        'O arquivo gerado é um script .m que cria as variáveis '
+                        '(tempo, valor e rótulo) direto no workspace do MATLAB.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
+              if (pidMode) ...[
+                _pidSection(),
+                const SizedBox(height: 4),
+              ],
 
               // Date/time filter toggle
               SwitchListTile(
@@ -419,8 +766,21 @@ class _ExportMatlabDialogState extends State<_ExportMatlabDialog> {
           style: FilledButton.styleFrom(
             backgroundColor: const Color.fromARGB(255, 63, 146, 66),
           ),
-          onPressed: _hasAnySelection ? _export : null,
-          child: const Text('Exportar', style: TextStyle(color: Colors.white)),
+          onPressed: !_canExport
+              ? null
+              : pidMode
+                  ? _exportPid
+                  : _export,
+          child: _busy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('Exportar', style: TextStyle(color: Colors.white)),
         ),
       ],
     );
