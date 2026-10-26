@@ -69,6 +69,12 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   final List<Connection> connections = [];
 
   LogicBlock? selectedBlock;
+
+  // Multi-selection (filled by Ctrl+A). Kept separate from
+  // `selectedBlock`, which drives the single-block properties panel.
+  // When non-empty, dragging any of these blocks moves all of them, and
+  // Delete / Ctrl+C act on the whole set.
+  final Set<LogicBlock> selectedBlocks = {};
   LogicBlock? linkingFrom;
   bool fullscreen = false;
   bool linkMode = false;
@@ -84,7 +90,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
 
   Timer? _logicTimeoutTimer;
   bool _logicReceived = false;
-  LogicBlock? _clipboardBlock;
+  // Blocks copied with Ctrl+C (one block, or the whole multi-selection).
+  final List<LogicBlock> _clipboardBlocks = [];
 
   // FIXED: stacks now hold full snapshots (blocks + connections), not
   // just a list of blocks. See `_EditorSnapshot` above for why.
@@ -489,6 +496,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   void _deserializeLogic(Map<String, dynamic> json) {
     blocks.clear();
     connections.clear();
+    selectedBlocks.clear();
     _idCounter = 0;
 
     final Map<int, LogicBlock> map = {};
@@ -1531,6 +1539,9 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
   // FIXED: restores both `blocks` and `connections` from a snapshot,
   // instead of only `blocks` like the previous undo/redo did.
   void _restoreSnapshot(_EditorSnapshot snap) {
+    // The snapshot holds fresh block instances, so any multi-selection
+    // would point to blocks that are no longer on the canvas.
+    selectedBlocks.clear();
     blocks
       ..clear()
       ..addAll(snap.blocks);
@@ -1587,6 +1598,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
       connections.clear();
       invalidBlocks.clear();
       selectedBlock = null;
+      selectedBlocks.clear();
       linkingFrom = null;
       isLinkingMode = false;
       _inputControllers.clear();
@@ -1610,37 +1622,71 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         final isCtrl = event.isControlPressed || event.isMetaPressed;
 
         if (event is RawKeyDownEvent) {
+          // ===== SELECT ALL =====
+          if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyA) {
+            setState(() {
+              selectedBlocks
+                ..clear()
+                ..addAll(blocks);
+              // The properties panel only edits one block at a time.
+              selectedBlock = null;
+              isLinkingMode = false;
+              linkingFrom = null;
+            });
+            return;
+          }
+
           // ===== COPY =====
           if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyC) {
-            if (selectedBlock != null) {
-              _clipboardBlock = selectedBlock;
+            if (selectedBlocks.isNotEmpty) {
+              _clipboardBlocks
+                ..clear()
+                ..addAll(selectedBlocks);
+            } else if (selectedBlock != null) {
+              _clipboardBlocks
+                ..clear()
+                ..add(selectedBlock!);
             }
             return;
           }
 
           // ===== PASTE =====
+          // Pasted blocks are copies without links (same as the original
+          // single-block paste), offset so they don't sit on top of the
+          // originals. The pasted set becomes the new multi-selection so
+          // it can be dragged into place right away.
           if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyV) {
-            if (_clipboardBlock != null) {
+            if (_clipboardBlocks.isNotEmpty) {
               _pushUndo();
 
               setState(() {
-                blocks.add(
-                  LogicBlock(
-                    id: 'b${_idCounter++}',
-                    title: _clipboardBlock!.title,
-                    icon: _clipboardBlock!.icon,
-                    type: _clipboardBlock!.type,
-                    ioType: _clipboardBlock!.ioType,
-                    ioChannel: _clipboardBlock!.ioChannel,
-                    position: _clipboardBlock!.position + const Offset(30, 30),
-                    pidKp: _clipboardBlock!.pidKp,
-                    pidKi: _clipboardBlock!.pidKi,
-                    pidKd: _clipboardBlock!.pidKd,
-                    pidOutMin: _clipboardBlock!.pidOutMin,
-                    pidOutMax: _clipboardBlock!.pidOutMax,
-                    tpoPeriodMs: _clipboardBlock!.tpoPeriodMs,
-                  ),
-                );
+                final pasted = _clipboardBlocks
+                    .map(
+                      (src) => LogicBlock(
+                        id: 'b${_idCounter++}',
+                        title: src.title,
+                        icon: src.icon,
+                        type: src.type,
+                        ioType: src.ioType,
+                        ioChannel: src.ioChannel,
+                        position: src.position + const Offset(30, 30),
+                        pidKp: src.pidKp,
+                        pidKi: src.pidKi,
+                        pidKd: src.pidKd,
+                        pidOutMin: src.pidOutMin,
+                        pidOutMax: src.pidOutMax,
+                        tpoPeriodMs: src.tpoPeriodMs,
+                      ),
+                    )
+                    .toList();
+                blocks.addAll(pasted);
+
+                if (pasted.length > 1) {
+                  selectedBlock = null;
+                  selectedBlocks
+                    ..clear()
+                    ..addAll(pasted);
+                }
               });
             }
             return;
@@ -1676,6 +1722,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               isLinkingMode = false;
               linkingFrom = null;
               selectedBlock = null;
+              selectedBlocks.clear();
             });
             FocusScope.of(context).unfocus();
             return;
@@ -1683,33 +1730,40 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         }
 
         // ===== DELETE =====
+        // Deletes the whole multi-selection if there is one, otherwise
+        // the single selected block. Undoable with Ctrl+Z.
         if (event is RawKeyUpEvent &&
             (event.logicalKey == LogicalKeyboardKey.delete)) {
-          if (selectedBlock != null) {
+          final toDelete = selectedBlocks.isNotEmpty
+              ? selectedBlocks.toSet()
+              : {if (selectedBlock != null) selectedBlock!};
+
+          if (toDelete.isNotEmpty) {
             _pushUndo();
 
             setState(() {
-              final deleted = selectedBlock!;
-
               connections.removeWhere(
-                (c) => c.from == deleted || c.to == deleted,
+                (c) => toDelete.contains(c.from) || toDelete.contains(c.to),
               );
 
               for (final b in blocks) {
                 for (int i = 0; i < b.inputs.length; i++) {
-                  if (b.inputs[i]?.fromBlock == deleted) {
+                  if (toDelete.contains(b.inputs[i]?.fromBlock)) {
                     b.inputs[i] = null;
                   }
                 }
               }
 
-              blocks.remove(deleted);
+              for (final deleted in toDelete) {
+                blocks.remove(deleted);
+                _inputControllers.remove(deleted.id);
+                _pidControllers.remove(deleted.id);
+                _tpoControllers.remove(deleted.id);
+                invalidBlocks.remove(deleted);
+              }
               if (blocks.isEmpty) _idCounter = 0;
-              _inputControllers.remove(deleted.id);
-              _pidControllers.remove(deleted.id);
-              _tpoControllers.remove(deleted.id);
-              invalidBlocks.remove(deleted);
               selectedBlock = null;
+              selectedBlocks.clear();
             });
           }
         }
@@ -2061,6 +2115,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                     _focusNode.requestFocus();
                     setState(() {
                       selectedBlock = null;
+                      selectedBlocks.clear();
                       linkingFrom = null;
                     });
                   },
@@ -2306,7 +2361,8 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
               return;
             }
 
-            // NORMAL case: just select
+            // NORMAL case: just select (drops any Ctrl+A multi-selection)
+            selectedBlocks.clear();
             selectedBlock = b;
           });
         },
@@ -2329,6 +2385,11 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
         onPanStart: (_) {
           _pushUndo();
           _dragSnapshotPushed = true;
+          // Dragging a block outside the multi-selection drops the
+          // selection, so only that block moves.
+          if (selectedBlocks.isNotEmpty && !selectedBlocks.contains(b)) {
+            setState(() => selectedBlocks.clear());
+          }
         },
 
         onPanUpdate: (d) {
@@ -2339,7 +2400,16 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
             _pushUndo();
             _dragSnapshotPushed = true;
           }
-          setState(() => b.position += d.delta);
+          setState(() {
+            if (selectedBlocks.contains(b)) {
+              // Move the whole multi-selection together.
+              for (final s in selectedBlocks) {
+                s.position += d.delta;
+              }
+            } else {
+              b.position += d.delta;
+            }
+          });
         },
 
         onPanEnd: (_) {
@@ -2361,7 +2431,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                     ? Colors.redAccent
                     : linkingFrom == b
                     ? Colors.greenAccent
-                    : selectedBlock == b
+                    : selectedBlock == b || selectedBlocks.contains(b)
                     ? const Color.fromARGB(255, 45, 108, 47)
                     : Colors.white10,
                 width: invalidBlocks.contains(b) ? 3 : 2,
@@ -2896,6 +2966,7 @@ class _VisualLogicBuilderPageState extends State<VisualLogicBuilderPage> {
                 _pidControllers.remove(b.id);
                 _tpoControllers.remove(b.id);
                 invalidBlocks.remove(b);
+                selectedBlocks.remove(b);
                 selectedBlock = null;
               });
             },
